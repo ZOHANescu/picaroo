@@ -512,8 +512,8 @@ export function App() {
                     <Icon name="monitor" size={25} />
                     <h3>Let’s connect your app.</h3>
                     <p>
-                      Start the app with <code>npm run dev</code> and enable{' '}
-                      <code>picaroo/vite</code> in its Vite config.
+                      Start your app normally, then keep its local development server running.
+                      Picaroo connects through its own preview—no framework plugin is required.
                     </p>
                     <p>
                       Target: {targetUrl}

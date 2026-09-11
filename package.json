@@ -15,6 +15,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
+    "test": "node --import tsx/esm --test src/source-edits/angular.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

@@ -405,3 +405,43 @@
     font-size: 19px;
   }
 }
+
+/* Shared readable type scale for the library and mapping surfaces. */
+.asset-thumbnail small,
+.library-card-copy span,
+.library-card-copy small,
+.library-footer,
+.library-footer button,
+.usage-list article > span,
+.usage-list code,
+.usage-list small,
+.usage-list > p,
+.data-mapping p,
+.mapped-field span,
+.mapped-field code,
+.mapped-field p {
+  font-size: 0.75rem;
+}
+.library-heading h2 span,
+.library-heading p,
+.index-coverage,
+.library-sidebar-note,
+.asset-dimensions,
+.library-hint,
+.data-mapping summary {
+  font-size: 0.8125rem;
+}
+.primary-action,
+.secondary-action,
+.library-filters input,
+.library-filters select,
+.data-mapping input,
+.data-mapping select,
+.library-card-copy strong,
+.library-sidebar,
+.library-sidebar-note strong {
+  font-size: 0.875rem;
+}
+.library-empty p {
+  font-size: 0.9375rem;
+}

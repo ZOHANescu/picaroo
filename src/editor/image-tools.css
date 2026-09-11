@@ -162,3 +162,17 @@
     padding: 16px;
   }
 }
+
+.optimization-settings,
+.profile-fields label,
+.crop-control,
+.crop-help {
+  font-size: 0.875rem;
+}
+.filename-toggle small,
+.profile-fields p {
+  font-size: 0.8125rem;
+}
+.image-review header p {
+  font-size: 0.9375rem;
+}

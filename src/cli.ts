@@ -1,14 +1,17 @@
 import { parseArgs } from 'node:util'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { PicarooService } from './server/picaroo-service'
+import { createPreviewGateway } from './server/preview-gateway'
 
 const { values } = parseArgs({
   options: {
     url: { type: 'string', default: 'http://localhost:4200' },
     port: { type: 'string', default: '4310' },
+    'preview-port': { type: 'string' },
     project: { type: 'string', default: process.cwd() },
     help: { type: 'boolean', short: 'h' },
   },
@@ -16,7 +19,9 @@ const { values } = parseArgs({
 
 if (values.help) {
   process.stdout.write(
-    'Picaroo — local image editing\n\npicaroo --url http://localhost:4200 [--port 4310] [--project .]\n\nStart your target app with the picaroo/vite plugin enabled first.\n',
+    'Picaroo — local image editing\n\n' +
+      'picaroo --url http://localhost:4200 [--port 4310] [--preview-port 4311] [--project .]\n\n' +
+      'Start your application normally, then run this command. No framework plugin is required.\n',
   )
 } else {
   const target = new URL(values.url!)
@@ -25,9 +30,9 @@ if (values.help) {
     !['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) ||
     target.username ||
     target.password
-  ) {
+  )
     throw new Error('Use an http://localhost URL for your running development app.')
-  }
+
   const projectRoot = path.resolve(values.project!)
   const pkg = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'))
   const dependencies = { ...pkg.dependencies, ...pkg.devDependencies }
@@ -35,19 +40,47 @@ if (values.help) {
     ? 'Angular'
     : dependencies.vue
       ? 'Vue'
-      : dependencies.react
-        ? 'React'
-        : 'Unknown'
-  const port = Number(values.port)
-  if (!Number.isInteger(port) || port < 1024 || port > 65535)
-    throw new Error('Choose a port between 1024 and 65535.')
-  const server = await createServer({
+      : dependencies.svelte
+        ? 'Svelte'
+        : dependencies.react
+          ? 'React'
+          : 'Web app'
+  const port = validPort(values.port, 'editor')
+  const previewPort = validPort(values['preview-port'] ?? String(port + 1), 'preview')
+  if (previewPort === port) throw new Error('The editor and preview ports must be different.')
+
+  const hasAngularAssets =
+    framework === 'Angular' && (await access(path.join(projectRoot, 'src/assets')).then(
+      () => true,
+      () => false,
+    ))
+  const assetDirectory = hasAngularAssets ? 'src/assets/picaroo' : 'public/picaroo'
+  const editorOrigin = `http://localhost:${port}`
+  const previewOrigin = `http://localhost:${previewPort}`
+  const service = new PicarooService({
+    root: projectRoot,
+    editorOrigin,
+    framework,
+    assetDirectory,
+  })
+  await service.initialize()
+
+  const gateway = createPreviewGateway(target, service)
+  await new Promise<void>((resolve, reject) => {
+    gateway.once('error', reject)
+    gateway.listen(previewPort, 'localhost', () => {
+      gateway.off('error', reject)
+      resolve()
+    })
+  })
+
+  const editor = await createServer({
     configFile: false,
     root: fileURLToPath(new URL('./editor', import.meta.url)),
-    cacheDir: path.join(projectRoot, 'node_modules/.vite-picaroo'),
+    cacheDir: path.join(projectRoot, '.picaroo/cache'),
     plugins: [react()],
     define: {
-      __PICAROO_TARGET__: JSON.stringify(target.href),
+      __PICAROO_TARGET__: JSON.stringify(previewOrigin),
       __PICAROO_PROJECT__: JSON.stringify({
         name: pkg.name ?? path.basename(projectRoot),
         framework,
@@ -60,16 +93,41 @@ if (values.help) {
       fs: { allow: [fileURLToPath(new URL('../', import.meta.url))] },
     },
   })
-  await server.listen()
+
+  editor.watcher.add(projectRoot)
+  let refreshTimer: ReturnType<typeof setTimeout>
+  const changed = (file: string) => {
+    if (!service.includes(file)) return
+    clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => void service.refresh(), 200)
+  }
+  editor.watcher.on('add', changed)
+  editor.watcher.on('change', changed)
+  editor.watcher.on('unlink', changed)
+  await editor.listen()
+
   process.stdout.write(
-    `\n  Picaroo  /  ${pkg.name}  /  ${framework}\n  Editor: http://localhost:${port}\n  App:    ${target.href}\n\n`,
+    `\n  Picaroo  /  ${pkg.name ?? path.basename(projectRoot)}  /  ${framework}\n` +
+      `  Editor:  ${editorOrigin}\n` +
+      `  Preview: ${previewOrigin}  →  ${target.href}\n\n`,
   )
-  if (framework !== 'React' || !dependencies.vite)
-    process.stdout.write('  This milestone supports React + Vite. Other adapters are planned.\n')
+
   const stop = async () => {
-    await server.close()
+    clearTimeout(refreshTimer)
+    editor.watcher.off('add', changed)
+    editor.watcher.off('change', changed)
+    editor.watcher.off('unlink', changed)
+    await editor.close()
+    await new Promise<void>((resolve) => gateway.close(() => resolve()))
     process.exit(0)
   }
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
+}
+
+function validPort(value: string, label: string) {
+  const port = Number(value)
+  if (!Number.isInteger(port) || port < 1024 || port > 65535)
+    throw new Error(`Choose a ${label} port between 1024 and 65535.`)
+  return port
 }

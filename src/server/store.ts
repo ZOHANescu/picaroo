@@ -19,6 +19,7 @@ import { ProjectIndex } from './project-index'
 import { fileURLToPath } from 'node:url'
 import { replaceJsonField } from '../source-edits/json'
 import { hash } from '../hash'
+import { analyzeAngular, replaceAngularReference } from '../source-edits/angular'
 
 interface JournalEntry extends Change {
   before: string
@@ -41,6 +42,8 @@ export class ProjectStore {
     readonly root: string,
     private components: string[],
     aliases: { find: string; replacement: string }[] = [],
+    private framework = 'React + Vite',
+    private assetDirectory = 'public/picaroo',
   ) {
     this.index = new ProjectIndex(
       root,
@@ -97,6 +100,12 @@ export class ProjectStore {
     for (const [file, source] of this.index.sources) {
       try {
         if (/\.[jt]sx$/.test(file)) this.register(path.join(this.root, file), source)
+        else if (
+          this.framework.startsWith('Angular') &&
+          (file.endsWith('.html') || file.endsWith('.ts'))
+        )
+          for (const target of analyzeAngular(source, file, this.assetDirectory))
+            this.targets.set(target.id, target)
         else if (file.endsWith('.css'))
           for (const target of analyzeCss(source, file)) this.targets.set(target.id, target)
       } catch {
@@ -138,7 +147,7 @@ export class ProjectStore {
     }
     return {
       project: this.project,
-      framework: 'React + Vite',
+      framework: this.framework,
       targets: targets.map((target) => ({
         id: target.id,
         file: target.file,
@@ -163,7 +172,10 @@ export class ProjectStore {
         selector: target.selector,
         conditions: target.conditions,
         descriptor: target.descriptor,
-        matchUrl: target.selector ? this.assetUrl(target.current, target.file) : undefined,
+        matchUrl:
+          target.selector || target.runtimeMatch
+            ? this.assetUrl(target.current, target.file)
+            : undefined,
       })),
       history: this.history.map((entry) => ({
         id: entry.id,
@@ -262,19 +274,24 @@ export class ProjectStore {
     if (target.descriptor?.endsWith('w'))
       profile.maxWidth = Math.min(profile.maxWidth, parseInt(target.descriptor, 10))
     const optimized = await optimizeAsset(input, target.kind, { ...options, profile })
-    const directory = target.binding ? 'src/assets/picaroo' : 'public/picaroo'
+    const directory =
+      target.assetDirectory ?? (target.binding ? 'src/assets/picaroo' : this.assetDirectory)
     const asset = this.generatedAssetPath(directory, originalName, optimized)
+    const publicUrl = this.publicUrl(asset)
     const document = target.data ? this.index.documents.get(target.data.file)! : undefined
     const file = target.data?.file ?? target.file
     const before = document?.source ?? source
     const after =
       document && target.data
-        ? replaceJsonField(document, target.data.pointer, '/' + asset.replace(/^public\//, ''))
+        ? replaceJsonField(document, target.data.pointer, publicUrl)
         : target.visual
-          ? replaceVisual(source, target, asset, optimized.data, optimized.width)
-          : replaceReference(source, target, asset)
+          ? replaceVisual(source, target, asset, optimized.data, optimized.width, publicUrl)
+          : target.angular
+            ? replaceAngularReference(source, target, publicUrl)
+            : replaceReference(source, target, asset)
     if (!document) {
       if (target.visual?.type === 'css') analyzeCss(after, file)
+      else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
       else analyze(after, target.file, this.components, this.index.documents)
     }
     await this.saveAsset(asset, optimized.data)
@@ -328,9 +345,15 @@ export class ProjectStore {
 
   private assetUrl(current: string, file: string) {
     const asset = this.index.resolve(current, file)
-    if (asset) return '/' + asset.file.replace(/^public\//, '')
+    if (asset) return this.publicUrl(asset.file)
     if (/^https?:/.test(current) || current.startsWith('/')) return current
     return '/' + path.posix.normalize(path.posix.join(path.posix.dirname(file), current))
+  }
+
+  private publicUrl(asset: string) {
+    if (asset.startsWith('public/')) return '/' + asset.slice('public/'.length)
+    if (asset.startsWith('src/assets/')) return '/assets/' + asset.slice('src/assets/'.length)
+    return '/' + asset
   }
 
   private generatedAssetPath(
@@ -428,7 +451,7 @@ export class ProjectStore {
       const optimized = await optimizeAsset(input, kind, { profile: this.settings })
       const version = hash(optimized.data)
       if (this.index.assets.some((asset) => asset.version === version)) return this.snapshot()
-      const file = this.generatedAssetPath('public/picaroo', name, optimized)
+      const file = this.generatedAssetPath(this.assetDirectory, name, optimized)
       await this.saveAsset(file, optimized.data)
       await this.reindex()
       return this.snapshot()
@@ -493,18 +516,27 @@ export class ProjectStore {
         destination = `public/picaroo/${asset.version.slice(0, 24)}${path.extname(asset.file).toLowerCase()}`
         await this.saveAsset(destination, data)
       }
+      if (
+        target.angular &&
+        target.assetDirectory?.startsWith('src/assets/') &&
+        !destination.startsWith('src/assets/')
+      ) {
+        destination = `${target.assetDirectory}/${asset.version.slice(0, 24)}${path.extname(asset.file).toLowerCase()}`
+        await this.saveAsset(destination, data)
+      }
       const document = target.data ? this.index.documents.get(target.data.file)! : undefined
       const before = document?.source ?? source
       const file = target.data?.file ?? target.file
       const after =
         document && target.data
-          ? replaceJsonField(
-              document,
-              target.data.pointer,
-              '/' + destination.slice('public/'.length),
-            )
-          : reuseReference(source, target, destination)
-      if (!document) analyze(after, target.file, this.components, this.index.documents)
+          ? replaceJsonField(document, target.data.pointer, this.publicUrl(destination))
+          : target.angular
+            ? replaceAngularReference(source, target, this.publicUrl(destination))
+            : reuseReference(source, target, destination)
+      if (!document) {
+        if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+        else analyze(after, target.file, this.components, this.index.documents)
+      }
       await this.index.readAsset(assetId, assetVersion)
       return this.commit(
         {

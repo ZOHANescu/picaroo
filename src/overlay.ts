@@ -40,7 +40,7 @@ if (window.parent !== window) {
     .zone:hover,.zone.selected { border:2px solid #28ac7e; background:rgb(57 195 148 / .07); }
     .zone.drag { background:rgb(57 195 148 / .22); border:2px solid #16865f; }
     .zone.blocked { border-color:#ad9f7b; pointer-events:none; }
-    button { position:absolute; top:7px; left:7px; max-width:calc(100% - 14px); border:1px solid #b2ecd4; border-radius:5px; background:#edfff7; color:#17563f; padding:calc(4px * var(--zoom, 1)) calc(6px * var(--zoom, 1)); font:600 calc(10px * var(--zoom, 1))/1.4 system-ui,sans-serif; box-shadow:0 2px 8px #0001; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    button { position:absolute; top:7px; left:7px; max-width:calc(100% - 14px); border:1px solid #b2ecd4; border-radius:5px; background:#edfff7; color:#17563f; padding:calc(5px * var(--zoom, 1)) calc(8px * var(--zoom, 1)); font:600 calc(12px * var(--zoom, 1))/1.4 system-ui,sans-serif; box-shadow:0 2px 8px #0001; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     button:focus-visible { outline:3px solid #17563f; outline-offset:2px; }
     .blocked button { background:#fff9e9; color:#776541; border-color:#e9ddb8; pointer-events:auto; }
   `
@@ -207,6 +207,19 @@ if (window.parent !== window) {
         }
       } catch {
         /* Unsupported selectors remain indexed but cannot be selected in this viewport. */
+      }
+    }
+    for (const target of snapshot.targets) {
+      if (!target.matchUrl || target.selector) continue
+      try {
+        const expected = new URL(target.matchUrl, location.origin).href
+        for (const element of document.querySelectorAll('img')) {
+          const image = element as HTMLImageElement
+          if ([image.currentSrc, image.src].includes(expected))
+            placements.set(element, [...(placements.get(element) ?? []), target.id])
+        }
+      } catch {
+        /* A malformed runtime URL remains available in the source index only. */
       }
     }
     const elements = [...placements.keys()]

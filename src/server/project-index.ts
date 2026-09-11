@@ -219,10 +219,15 @@ export class ProjectIndex {
       }
     }
     const candidates = clean.startsWith('/')
-      ? [`public${clean}`, clean.slice(1)]
+      ? [`public${clean}`, `src${clean}`, clean.slice(1)]
       : clean.startsWith('.')
         ? [path.posix.normalize(path.posix.join(path.posix.dirname(file), clean))]
-        : [path.posix.join(path.posix.dirname(file), clean), `public/${clean}`, clean]
+        : [
+            path.posix.join(path.posix.dirname(file), clean),
+            `public/${clean}`,
+            `src/${clean}`,
+            clean,
+          ]
     for (const candidate of candidates) {
       const asset = assets.get(candidate)
       if (asset) return asset

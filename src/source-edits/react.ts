@@ -28,6 +28,12 @@ export interface SourceTarget extends Target {
   hasSource: boolean
   runtimeId?: string
   visual?: VisualEdit
+  angular?: {
+    binding: boolean
+    quote: '"' | "'"
+  }
+  runtimeMatch?: boolean
+  assetDirectory?: string
 }
 
 function walk(node: Node, visit: (node: Node, ancestors: Node[]) => void, ancestors: Node[] = []) {
@@ -194,6 +200,7 @@ export function analyze(
               ? 'This responsive fallback uses a dynamic source. Use a literal URL or a direct asset import.'
               : 'Use a direct local JSON field or a static image source.',
       shared: component || (binding?.references ?? 0) > 1,
+      runtimeMatch: !!current,
       start: value?.start ?? 0,
       end: value?.end ?? 0,
       insertion: openingEnd(node, source),

@@ -408,10 +408,11 @@ export function replaceVisual(
   asset: string,
   input: Buffer,
   width?: number,
+  publicUrl?: string,
 ) {
   const edit = target.visual!
   const output = new MagicString(source)
-  const url = '/' + asset.replace(/^public\//, '')
+  const url = publicUrl ?? '/' + asset.replace(/^public\//, '')
   if (edit.type === 'svg') {
     const svg = svgJsx(input.toString('utf8'), target.id)
     if (edit.contentStart === edit.contentEnd) output.appendLeft(edit.contentStart!, svg.children)

@@ -1075,3 +1075,62 @@ iframe {
     transition: none !important;
   }
 }
+
+/* A compact but readable type scale: regular controls are 14px+, metadata never drops below 12px. */
+.version,
+.section-label,
+.eyebrow,
+.dev-badge,
+.intro-tag,
+.intro-tag span,
+.address,
+.preview-status,
+.tip > span,
+.inspector-bottom,
+.selection-art span,
+.detail-label,
+.drop-card small,
+.history-icon span {
+  font-size: 0.75rem;
+}
+.project-card div > span,
+.count,
+.list-heading > span,
+.target-copy > span,
+.sidebar-footer div > span,
+.mode-toggle button,
+.zoom,
+.tip p,
+.drop-card span,
+.optimization-note p,
+.mapping-note,
+.history-card p,
+.history-card small,
+.size-change,
+.undo-button {
+  font-size: 0.8125rem;
+}
+.project-card strong,
+.panel-nav button,
+.list-heading h2,
+.search input,
+.target-copy strong,
+.empty-list,
+.sidebar-footer strong,
+.breadcrumb,
+.topbar h1,
+.topbar-right,
+.intro p,
+.inspector-heading h2,
+.unselected > p,
+.source-file,
+.drop-card strong,
+.history-card h3,
+.empty-history p,
+.connection-card p,
+.connection-card button {
+  font-size: 0.875rem;
+}
+.notice {
+  font-size: 0.875rem;
+}

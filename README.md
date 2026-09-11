@@ -4,7 +4,7 @@ Picaroo is a local visual image editor for web application development. It opens
 
 Changes are written back to the application's source files, JSON data, and asset directories. Picaroo does not use a hosted asset service or a runtime image manifest, and it is never included in the production application.
 
-Picaroo is application-independent: it contains no assumptions about a particular website, brand, page structure, or data model. The current source adapter supports **React + Vite** applications. It can be added to any number of React + Vite repositories. Vue, Angular, SSR, and other build-tool adapters require separate integration work.
+Picaroo is application-independent: it contains no assumptions about a particular website, brand, page structure, or data model. Its standalone preview gateway works with any local HTTP development server without changing that application's build configuration. Source-aware editing currently supports **React** and **Angular**, while every framework benefits from the asset library and project-wide usage scan.
 
 ## What Picaroo does
 
@@ -24,10 +24,10 @@ Picaroo is application-independent: it contains no assumptions about a particula
 ## Supported environment
 
 - Node.js 22 or newer.
-- A React application served by Vite.
-- Vite base path `/`.
-- The standard project `public/` directory.
-- JSX or TSX component source and plain CSS stylesheets.
+- Any application served from a local HTTP development server.
+- React JSX/TSX or Angular HTML templates (including static inline templates).
+- The standard `public/` directory or Angular's `src/assets/` directory.
+- Plain CSS stylesheets.
 - Local JPEG, PNG, WebP, AVIF, and SVG assets.
 
 Picaroo is currently consumed as a local package, commonly through a Git submodule. Publishing it to npm is outside the current scope.
@@ -50,13 +50,12 @@ Add the local package to the application's `package.json`:
 }
 ```
 
-Add convenient scripts. Replace port `5173` if the application uses another development port:
+Add a convenient script. Replace port `4200` if the application uses another development port:
 
 ```json
 {
   "scripts": {
-    "dev": "vite",
-    "picaroo": "picaroo --url http://localhost:5173",
+    "picaroo": "picaroo --url http://localhost:4200",
     "picaroo:typecheck": "tsc --noEmit -p external/picaroo/tsconfig.json"
   }
 }
@@ -68,21 +67,9 @@ Install dependencies from the application root:
 npm install
 ```
 
-## Configure Vite
+No Angular builder, Vite plugin, webpack loader, or production dependency is required. Picaroo runs a local preview gateway in front of the development server and injects its editing overlay only into that preview.
 
-Add the Picaroo plugin before the React plugin:
-
-```ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { picaroo } from 'picaroo/vite'
-
-export default defineConfig({
-  plugins: [picaroo(), react()],
-})
-```
-
-The plugin runs only while Vite is serving the application. It does not instrument production builds.
+The `picaroo/vite` adapter remains available for existing React + Vite integrations, but new projects should use the standalone command.
 
 ### Custom image-slot components
 
@@ -140,12 +127,12 @@ Terminal 2:
 npm run picaroo
 ```
 
-Open [http://localhost:4310](http://localhost:4310). Picaroo connects to the application URL configured in the `picaroo` script.
+Open [http://localhost:4310](http://localhost:4310). Picaroo connects to the application URL configured in the `picaroo` script through an isolated local preview on port `4311`.
 
 The default editor port is `4310`. Both values can be changed:
 
 ```sh
-npx picaroo --url http://localhost:3000 --port 4311 --project .
+npx picaroo --url http://localhost:3000 --port 4310 --preview-port 4311 --project .
 ```
 
 Keep both development servers running while editing.
@@ -169,6 +156,8 @@ If a save fails, the raster review remains open with the selected file and crop 
 | Source pattern                                                      | Behavior                                                                           |
 | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `<img src="/images/photo.jpg" />`                                   | Writes an optimized asset under `public/picaroo/` and changes the literal URL.     |
+| `<img src="assets/photo.jpg">` in an Angular template               | Writes under `src/assets/picaroo/` when that asset root exists and updates the template. |
+| `<img [src]="'assets/photo.jpg'">` in an Angular template           | Preserves the Angular binding and replaces its static string expression.           |
 | `<img src={photo} />` using a direct default asset import           | Writes under `src/assets/picaroo/` and updates or safely forks the import.         |
 | An SVG rendered through `<img>`                                     | Validates and optimizes a static SVG before updating its path.                     |
 | A registered empty slot component                                   | Adds a `src` property at the component call site.                                  |
@@ -337,14 +326,14 @@ Commit and push changes inside the Picaroo repository first. Then commit the upd
 ```text
 bin/picaroo.mjs       CLI entry and TypeScript runtime loader
 vite.mjs              Vite integration entry
-src/cli.ts            Editor server and project detection
+src/cli.ts            Editor server, project detection, and standalone integration
 src/editor/           React editor workspace
 src/overlay.ts        Framework-neutral DOM overlay and message bridge
-src/vite.ts           Development instrumentation and local API
-src/source-edits/     React, JSON, CSS, SVG, and responsive source editing
+src/vite.ts           Optional legacy Vite adapter
+src/source-edits/     React, Angular, JSON, CSS, SVG, and responsive source editing
 src/server/           Asset index, confined writes, and persistent Undo
 src/assets/           Raster and SVG processing
 src/shared.ts         Shared editor and bridge types
 ```
 
-Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. The React + Vite adapter is functional; Vue, Angular, SSR, custom public directories, non-root base paths, workspace selection, automatic responsive-set generation, and npm distribution remain future adaptations.
+Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. React and Angular source editing are functional through the standalone gateway. Dynamic Angular expressions, Vue/Svelte template rewriting, SSR-only images, custom asset mappings, automatic responsive-set generation, and npm distribution remain future adaptations.
