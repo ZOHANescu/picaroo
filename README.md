@@ -26,6 +26,7 @@ Picaroo is application-independent: it contains no assumptions about a particula
 - Node.js 22 or newer.
 - Any application served from a local HTTP development server.
 - React JSX/TSX or Angular HTML templates (including static inline templates).
+- PrimeNG `p-image`, `p-avatar`, and image-bearing `p-chip` components.
 - The standard `public/` directory or Angular's `src/assets/` directory.
 - Plain CSS stylesheets.
 - Local JPEG, PNG, WebP, AVIF, and SVG assets.
@@ -158,6 +159,8 @@ If a save fails, the raster review remains open with the selected file and crop 
 | `<img src="/images/photo.jpg" />`                                   | Writes an optimized asset under `public/picaroo/` and changes the literal URL.     |
 | `<img src="assets/photo.jpg">` in an Angular template               | Writes under `src/assets/picaroo/` when that asset root exists and updates the template. |
 | `<img [src]="'assets/photo.jpg'">` in an Angular template           | Preserves the Angular binding and replaces its static string expression.           |
+| `<p-image src="assets/photo.jpg" />`                                | Selects the rendered PrimeNG image and updates the component source.                |
+| `<p-avatar image="assets/person.jpg" />`                            | Supports PrimeNG avatar and chip image properties as editable image targets.        |
 | `<img src={photo} />` using a direct default asset import           | Writes under `src/assets/picaroo/` and updates or safely forks the import.         |
 | An SVG rendered through `<img>`                                     | Validates and optimizes a static SVG before updating its path.                     |
 | A registered empty slot component                                   | Adds a `src` property at the component call site.                                  |

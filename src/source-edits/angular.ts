@@ -14,6 +14,13 @@ interface Attribute {
   end: number
 }
 
+const imageComponents = new Map<string, { sources: string[]; labels: string[] }>([
+  ['img', { sources: ['src', 'ngsrc'], labels: ['alt'] }],
+  ['p-image', { sources: ['src'], labels: ['alt'] }],
+  ['p-avatar', { sources: ['image'], labels: ['arialabel', 'label'] }],
+  ['p-chip', { sources: ['image'], labels: ['alt', 'label'] }],
+])
+
 export function analyzeAngular(
   source: string,
   file: string,
@@ -23,19 +30,25 @@ export function analyzeAngular(
   const targets: SourceTarget[] = []
   let ordinal = 0
   for (const region of regions) {
-    for (const tag of region.source.matchAll(/<img\b[\s\S]*?>/gi)) {
+    for (const tag of region.source.matchAll(/<([a-z][\w-]*)\b[\s\S]*?>/gi)) {
+      const element = tag[1].toLowerCase()
+      const component = imageComponents.get(element)
+      if (!component) continue
       const tagOffset = region.offset + tag.index!
       const attributes = parseAttributes(tag[0], tagOffset)
+      const sourceNames = component.sources.flatMap((name) => [name, `[${name}]`, `[attr.${name}]`])
       const sourceAttr = attributes.find((attribute) =>
-        ['src', 'ngsrc', '[src]', '[ngsrc]', '[attr.src]'].includes(attribute.name.toLowerCase()),
+        sourceNames.includes(attribute.name.toLowerCase()),
       )
       if (!sourceAttr) continue
       const binding = sourceAttr.name.startsWith('[')
       const current = binding ? stringExpression(sourceAttr.value) : sourceAttr.value.trim()
       if (!current || !imageUrl.test(current) || current.includes('{{')) continue
       const label =
-        attributes.find((attribute) => attribute.name.toLowerCase() === 'alt')?.value.trim() ||
-        `Image · ${path.basename(file)}:${lineAt(source, tagOffset)}`
+        attributes
+          .find((attribute) => component.labels.includes(attribute.name.toLowerCase()))
+          ?.value.trim() ||
+        `${element === 'img' ? 'Image' : `PrimeNG ${element.slice(2)}`} · ${path.basename(file)}:${lineAt(source, tagOffset)}`
       targets.push({
         id: hash(`${file}:angular-image:${ordinal++}`).slice(0, 20),
         file,

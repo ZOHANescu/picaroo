@@ -36,3 +36,29 @@ test('supports static inline Angular templates', () => {
   const output = replaceAngularReference(source, target, '/assets/picaroo/card.webp')
   assert.match(output, /template: \`<img src="assets\/picaroo\/card\.webp" alt="Card">\`/)
 })
+
+test('finds PrimeNG image, avatar, and chip components', () => {
+  const source = [
+    '<p-image src="assets/gallery.webp" alt="Gallery image" [preview]="true" />',
+    '<p-avatar [image]="\'assets/person.jpg\'" ariaLabel="Profile photo" />',
+    '<p-chip image="assets/member.png" label="Project member" />',
+  ].join('\n')
+  const targets = analyzeAngular(source, 'src/app/people.component.html', 'src/assets/picaroo')
+
+  assert.deepEqual(
+    targets.map((target) => [target.label, target.current]),
+    [
+      ['Gallery image', 'assets/gallery.webp'],
+      ['Profile photo', 'assets/person.jpg'],
+      ['Project member', 'assets/member.png'],
+    ],
+  )
+  assert.match(
+    replaceAngularReference(source, targets[0], '/assets/picaroo/gallery.webp'),
+    /<p-image src="assets\/picaroo\/gallery\.webp"/,
+  )
+  assert.match(
+    replaceAngularReference(source, targets[1], '/assets/picaroo/person.jpg'),
+    /\[image\]="'assets\/picaroo\/person\.jpg'"/,
+  )
+})
