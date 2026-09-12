@@ -30,7 +30,8 @@ export interface SourceTarget extends Target {
   visual?: VisualEdit
   angular?: {
     binding: boolean
-    quote: '"' | "'"
+    quote: '"' | "'" | '`'
+    sourceLiteral?: boolean
   }
   runtimeMatch?: boolean
   assetDirectory?: string

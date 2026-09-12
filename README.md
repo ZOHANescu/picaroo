@@ -159,6 +159,8 @@ If a save fails, the raster review remains open with the selected file and crop 
 | `<img src="/images/photo.jpg" />`                                   | Writes an optimized asset under `public/picaroo/` and changes the literal URL.     |
 | `<img src="assets/photo.jpg">` in an Angular template               | Writes under `src/assets/picaroo/` when that asset root exists and updates the template. |
 | `<img [src]="'assets/photo.jpg'">` in an Angular template           | Preserves the Angular binding and replaces its static string expression.           |
+| `<img [src]="images.hero.src">` backed by a readonly TS object      | Updates the exact string in the component's static object initializer.             |
+| An Angular `@for` or PrimeNG carousel over a readonly TS array       | Resolves each static record and updates only the selected image string.             |
 | `<p-image src="assets/photo.jpg" />`                                | Selects the rendered PrimeNG image and updates the component source.                |
 | `<p-avatar image="assets/person.jpg" />`                            | Supports PrimeNG avatar and chip image properties as editable image targets.        |
 | `<img src={photo} />` using a direct default asset import           | Writes under `src/assets/picaroo/` and updates or safely forks the import.         |
@@ -171,7 +173,7 @@ If a save fails, the raster review remains open with the selected file and crop 
 | A static inline `<svg>`                                             | Replaces vector content and `viewBox` while retaining root application attributes. |
 | Literal `srcSet` on `<img>` or `<picture><source>`                  | Treats each candidate as a separate target and retains other candidates.           |
 
-Dynamic expressions, spread props, transformed collections, runtime-generated URLs, and unsupported bindings are shown as **Needs mapping** rather than being rewritten speculatively.
+Computed or unresolved expressions, spread props, transformed collections, runtime-generated URLs, and unsupported bindings are shown as **Needs mapping** rather than being rewritten speculatively.
 
 Editing a source inside a reusable component changes every rendered instance of that source. Picaroo reports multiple instances on the current page. Direct shared asset imports are forked when a single placement can be changed safely.
 
@@ -339,4 +341,4 @@ src/assets/           Raster and SVG processing
 src/shared.ts         Shared editor and bridge types
 ```
 
-Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. React and Angular source editing are functional through the standalone gateway. Dynamic Angular expressions, Vue/Svelte template rewriting, SSR-only images, custom asset mappings, automatic responsive-set generation, and npm distribution remain future adaptations.
+Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. React and Angular source editing are functional through the standalone gateway. Computed or mutable Angular expressions, Vue/Svelte template rewriting, SSR-only images, custom asset mappings, automatic responsive-set generation, and npm distribution remain future adaptations.

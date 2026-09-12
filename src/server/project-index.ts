@@ -41,7 +41,8 @@ export class ProjectIndex {
       !path.isAbsolute(relative) &&
       !relative.split('/').some((part) => part.startsWith('.') || ignored.has(part)) &&
       !slash(path.resolve(file)).startsWith(this.excluded + '/') &&
-      !['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'].includes(path.basename(file))
+      !['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'].includes(path.basename(file)) &&
+      !/^tsconfig(?:\.[\w-]+)?\.json$/i.test(path.basename(file))
     )
   }
 
@@ -161,7 +162,10 @@ export class ProjectIndex {
         }
       } else {
         try {
-          const ast = parse(source, { sourceType: 'unambiguous', plugins: ['jsx', 'typescript'] })
+          const ast = parse(source, {
+            sourceType: 'unambiguous',
+            plugins: ['decorators-legacy', 'jsx', 'typescript'],
+          })
           const visit = (node: Node, parent?: Node) => {
             if (node.type === 'StringLiteral')
               add(node.value, file, {

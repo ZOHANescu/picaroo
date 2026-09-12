@@ -62,3 +62,81 @@ test('finds PrimeNG image, avatar, and chip components', () => {
     /\[image\]="'assets\/picaroo\/person\.jpg'"/,
   )
 })
+
+test('rewrites direct image fields in readonly Angular component objects', () => {
+  const template = `
+    <img [src]="images.hero.src" [alt]="images.hero.alt" />
+    <img [ngSrc]="heroImage.src" [alt]="heroImage.alt" />
+  `
+  const component = `
+    import { Component } from '@angular/core'
+    interface ImageAsset { src: string; alt: string }
+    @Component({ templateUrl: './home.component.html' })
+    export class HomeComponent {
+      readonly images = {
+        hero: { src: '/assets/hero.webp', alt: 'SOH at sunset' }
+      } satisfies Record<string, ImageAsset>
+      readonly heroImage: ImageAsset = {
+        src: '/assets/about.jpg',
+        alt: 'About SOH'
+      }
+    }
+  `
+  const targets = analyzeAngular(template, 'src/app/home.component.html', 'src/assets/picaroo', {
+    file: 'src/app/home.component.ts',
+    source: component,
+  })
+
+  assert.deepEqual(
+    targets.map((target) => [target.file, target.label, target.current]),
+    [
+      ['src/app/home.component.ts', 'SOH at sunset', '/assets/hero.webp'],
+      ['src/app/home.component.ts', 'About SOH', '/assets/about.jpg'],
+    ],
+  )
+  assert.match(
+    replaceAngularReference(component, targets[0], '/assets/picaroo/replacement.webp'),
+    /src: '\/assets\/picaroo\/replacement\.webp'/,
+  )
+})
+
+test('resolves Angular @for arrays and PrimeNG carousel item templates', () => {
+  const template = `
+    @for (space of cabinSpaces; track space.title) {
+      <img [ngSrc]="space.image.src" [alt]="space.image.alt" />
+    }
+    <p-carousel [value]="galleryImages">
+      <ng-template #item let-image>
+        <p-image [src]="image.src" [alt]="image.alt">
+          <ng-template #image><img [src]="image.src" [alt]="image.alt" /></ng-template>
+        </p-image>
+      </ng-template>
+    </p-carousel>
+  `
+  const component = `
+    export class GalleryComponent {
+      readonly cabinSpaces = [
+        { image: { src: '/assets/bedroom.webp', alt: 'Bedroom' }, title: 'Bed' },
+        { image: { src: '/assets/kitchen.webp', alt: 'Kitchen' }, title: 'Kitchen' }
+      ] as const
+      readonly galleryImages = [
+        { src: '/assets/one.webp', alt: 'One' },
+        { src: '/assets/two.webp', alt: 'Two' }
+      ]
+    }
+  `
+  const targets = analyzeAngular(template, 'src/app/gallery.component.html', 'src/assets/picaroo', {
+    file: 'src/app/gallery.component.ts',
+    source: component,
+  })
+
+  assert.deepEqual(
+    targets.map((target) => [target.label, target.current]),
+    [
+      ['Bedroom', '/assets/bedroom.webp'],
+      ['Kitchen', '/assets/kitchen.webp'],
+      ['One', '/assets/one.webp'],
+      ['Two', '/assets/two.webp'],
+    ],
+  )
+})

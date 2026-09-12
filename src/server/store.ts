@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { replaceJsonField } from '../source-edits/json'
 import { hash } from '../hash'
 import { analyzeAngular, replaceAngularReference } from '../source-edits/angular'
+import type { AngularComponentSource } from '../source-edits/angular'
 
 interface JournalEntry extends Change {
   before: string
@@ -97,6 +98,18 @@ export class ProjectStore {
   private async reindex() {
     await this.index.refresh()
     this.targets.clear()
+    const angularComponents = new Map<string, AngularComponentSource>()
+    if (this.framework.startsWith('Angular')) {
+      for (const [file, source] of this.index.sources) {
+        if (!file.endsWith('.ts')) continue
+        for (const match of source.matchAll(/\btemplateUrl\s*:\s*(["'])([^"']+)\1/g)) {
+          const template = path.posix.normalize(
+            path.posix.join(path.posix.dirname(file), match[2]),
+          )
+          angularComponents.set(template, { file, source })
+        }
+      }
+    }
     for (const [file, source] of this.index.sources) {
       try {
         if (/\.[jt]sx$/.test(file)) this.register(path.join(this.root, file), source)
@@ -104,7 +117,12 @@ export class ProjectStore {
           this.framework.startsWith('Angular') &&
           (file.endsWith('.html') || file.endsWith('.ts'))
         )
-          for (const target of analyzeAngular(source, file, this.assetDirectory))
+          for (const target of analyzeAngular(
+            source,
+            file,
+            this.assetDirectory,
+            file.endsWith('.html') ? angularComponents.get(file) : undefined,
+          ))
             this.targets.set(target.id, target)
         else if (file.endsWith('.css'))
           for (const target of analyzeCss(source, file)) this.targets.set(target.id, target)

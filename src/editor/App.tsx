@@ -17,6 +17,7 @@ import './library.css'
 
 declare const __PICAROO_TARGET__: string
 declare const __PICAROO_PROJECT__: { name: string; framework: string }
+declare const __PICAROO_VERSION__: string
 const targetUrl = __PICAROO_TARGET__
 const targetOrigin = new URL(targetUrl).origin
 const bytes = (value: number) => (value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KB`)
@@ -180,7 +181,7 @@ export function App() {
           <span>
             picaroo<span className="brand-dot">.</span>
           </span>
-          <span className="version">ALPHA</span>
+          <span className="version">v{__PICAROO_VERSION__}</span>
         </div>
         <div className="project-card">
           <span className="project-avatar">

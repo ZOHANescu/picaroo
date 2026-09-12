@@ -35,6 +35,9 @@ if (values.help) {
 
   const projectRoot = path.resolve(values.project!)
   const pkg = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'))
+  const picarooPkg = JSON.parse(
+    await readFile(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+  )
   const dependencies = { ...pkg.dependencies, ...pkg.devDependencies }
   const framework = dependencies['@angular/core']
     ? 'Angular'
@@ -81,6 +84,7 @@ if (values.help) {
     plugins: [react()],
     define: {
       __PICAROO_TARGET__: JSON.stringify(previewOrigin),
+      __PICAROO_VERSION__: JSON.stringify(picarooPkg.version ?? '0.0.0'),
       __PICAROO_PROJECT__: JSON.stringify({
         name: pkg.name ?? path.basename(projectRoot),
         framework,
