@@ -218,11 +218,11 @@ The **Asset library** scans the project without requiring every route to be open
 
 The index is static analysis. Computed URLs, API-provided assets, arbitrary runtime transformations, and unsupported aliases may not be detected. **No static references** means the index found no supported reference; it is not proof that an asset is unused at runtime.
 
-The scan excludes hidden directories, symlinks, dependencies, build output, and Picaroo's own submodule. It supports up to 15,000 relevant files, image files up to 15 MB, and source files up to 2 MB. Coverage problems appear in the library.
+The scan excludes hidden directories, symlinks, dependencies, build output, and Picaroo's own submodule. It supports up to 15,000 relevant files, image files up to 30 MB, and source files up to 2 MB. Coverage problems appear in the library.
 
 ## Image optimization
 
-Raster input supports JPEG, PNG, WebP, and AVIF. Picaroo rejects animated images and inputs above 40 million pixels or 15 MB.
+Raster input supports JPEG, PNG, WebP, and AVIF. Picaroo rejects animated images and inputs above 40 million pixels or 30 MB.
 
 Default raster processing:
 

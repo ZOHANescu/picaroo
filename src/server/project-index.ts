@@ -8,7 +8,8 @@ import { hash } from '../hash'
 import { dataFields, readJson } from '../source-edits/json'
 import type { JsonDocument } from '../source-edits/json'
 import type { AssetUsage, DataField, LibraryAsset } from '../shared'
-import { optimizeAsset, MAX_UPLOAD } from '../assets/optimize'
+import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
+import { optimizeAsset } from '../assets/optimize'
 
 const imageExtension = /\.(png|jpe?g|webp|avif|svg)$/i
 const textExtension = /\.(tsx?|jsx?|mjs|cjs|json|css|scss|less|html|vue)$/i
@@ -79,7 +80,7 @@ export class ProjectIndex {
           const info = await stat(absolute)
           if (imageExtension.test(file)) {
             if (info.size > MAX_UPLOAD) {
-              issues.push(`${file}: images over 15 MB are excluded from the library.`)
+              issues.push(`${file}: images over ${MAX_UPLOAD_MB} MB are excluded from the library.`)
               continue
             }
             const signature = `${info.size}:${info.mtimeMs}:${info.ctimeMs}`
@@ -248,7 +249,8 @@ export class ProjectIndex {
     if (relative.startsWith('..') || path.isAbsolute(relative))
       throw new Error('Asset is outside this project.')
     const info = await stat(file)
-    if (info.size > MAX_UPLOAD) throw new Error('This asset exceeds the 15 MB limit.')
+    if (info.size > MAX_UPLOAD)
+      throw new Error(`This asset exceeds the ${MAX_UPLOAD_MB} MB limit.`)
     const data = await readFile(file)
     if (hash(data) !== version) throw new Error('The library asset changed. Choose it again.')
     return { asset, data }

@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { transformWithEsbuild } from 'vite'
-import { MAX_UPLOAD } from '../assets/optimize'
+import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { ProjectStore } from './store'
 
 const prefix = '/__picaroo'
@@ -207,7 +207,13 @@ async function readBody(req: IncomingMessage, maximum: number) {
   let length = 0
   for await (const chunk of req) {
     length += chunk.length
-    if (length > maximum) throw new Error('File is too large. Maximum upload size is 15 MB.')
+    if (length > maximum) {
+      const message =
+        maximum === MAX_UPLOAD
+          ? `File is too large. Maximum upload size is ${MAX_UPLOAD_MB} MB.`
+          : 'Request body is too large.'
+      throw new Error(message)
+    }
     chunks.push(Buffer.from(chunk))
   }
   return Buffer.concat(chunks)
