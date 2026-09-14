@@ -2,6 +2,8 @@ import type { BridgeEvent, EditorCommand, Snapshot, VisibleTarget, ImageOptions 
 
 declare const PICAROO_CONFIG: { token: string; editorOrigin: string }
 const channel = 'picaroo:1'
+const maxUploadMb = 30
+const maxUpload = maxUploadMb * 1024 * 1024
 
 // No React runtime in the target app. The overlay is isolated from application CSS.
 if (window.parent !== window) {
@@ -141,10 +143,11 @@ if (window.parent !== window) {
     options?: ImageOptions,
     requestId?: string,
   ) {
-    if (file.size > 15 * 1024 * 1024) {
-      send({ type: 'notice', error: true, message: 'Choose a file smaller than 15 MB.' })
+    if (file.size > maxUpload) {
+      const message = `Choose a file up to ${maxUploadMb} MB.`
+      send({ type: 'notice', error: true, message })
       if (requestId)
-        send({ type: 'mutation-result', requestId, error: 'Choose a file smaller than 15 MB.' })
+        send({ type: 'mutation-result', requestId, error: message })
       return
     }
     void mutate(

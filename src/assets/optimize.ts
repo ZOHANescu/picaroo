@@ -1,9 +1,7 @@
 import sharp from 'sharp'
 import { optimize } from 'svgo'
 import type { AssetKind, ImageOptions, OptimizationProfile } from '../shared'
-import { DEFAULT_PROFILE, cropBounds } from '../shared'
-
-export const MAX_UPLOAD = 15 * 1024 * 1024
+import { DEFAULT_PROFILE, MAX_UPLOAD, MAX_UPLOAD_MB, cropBounds } from '../shared'
 
 export function validateProfile(value: OptimizationProfile): OptimizationProfile {
   if (
@@ -47,7 +45,7 @@ export async function optimizeAsset(input: Buffer, kind: AssetKind, options: Ima
   )
     throw new Error('Invalid crop or focal point.')
   if (!input.length || input.length > MAX_UPLOAD)
-    throw new Error('Choose a file smaller than 15 MB.')
+    throw new Error(`Choose a file up to ${MAX_UPLOAD_MB} MB.`)
   if (kind === 'svg') {
     const text = input
       .toString('utf8')

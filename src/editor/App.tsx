@@ -7,7 +7,7 @@ import type {
   Target,
   LibraryAsset,
 } from '../shared'
-import { CHANNEL, DEFAULT_PROFILE } from '../shared'
+import { CHANNEL, DEFAULT_PROFILE, MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { Icon } from './Icon'
 import { AssetLibrary, AssetDetails, AssetThumbnail } from './Library'
 import { useThumbnails, assetKey } from './useThumbnails'
@@ -67,8 +67,8 @@ export function App() {
   const prepareUpload = useCallback(
     (target: Target, file: File) => {
       setSaveError('')
-      if (file.size > 15 * 1024 * 1024) {
-        setNotice({ error: true, message: 'Choose a file smaller than 15 MB.' })
+      if (file.size > MAX_UPLOAD) {
+        setNotice({ error: true, message: `Choose a file up to ${MAX_UPLOAD_MB} MB.` })
         return
       }
       if (target.kind === 'svg')
@@ -696,7 +696,7 @@ export function App() {
                       <span>or click to choose a file</span>
                       <small>
                         {selected.kind === 'svg' ? 'Static SVG only' : 'JPG, PNG, WebP, AVIF'} · up
-                        to 15 MB
+                        to {MAX_UPLOAD_MB} MB
                       </small>
                     </button>
                     <input
