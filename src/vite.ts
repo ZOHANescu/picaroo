@@ -3,6 +3,8 @@ import path from 'node:path'
 import { PicarooService } from './server/picaroo-service'
 import { instrument } from './source-edits/react'
 import { reactProjectIntegration } from './integrations/project'
+import { resolveImageComponents } from './integrations/components'
+import { readFile } from 'node:fs/promises'
 
 export interface PicarooOptions {
   /** Exact origin of the Picaroo editor. Both servers must run on the same machine. */
@@ -26,6 +28,8 @@ export function picaroo(options: PicarooOptions = {}): Plugin {
     async configureServer(devServer) {
       server = devServer
       const root = server.config.root
+      const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+      const components = resolveImageComponents(manifest, options.components)
       const aliases = server.config.resolve.alias.flatMap((alias) =>
         typeof alias.find === 'string'
           ? [{ find: alias.find, replacement: alias.replacement }]
@@ -42,7 +46,7 @@ export function picaroo(options: PicarooOptions = {}): Plugin {
       service = new PicarooService({
         root,
         aliases,
-        components: options.components,
+        components,
         framework: reactProjectIntegration().label,
         integration: reactProjectIntegration().id,
         editorOrigin: options.editorOrigin ?? 'http://localhost:4310',

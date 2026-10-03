@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react'
 import { PicarooService } from './server/picaroo-service'
 import { createPreviewGateway } from './server/preview-gateway'
 import { detectProjectIntegration } from './integrations/project'
+import { resolveImageComponents } from './integrations/components'
 
 const { values } = parseArgs({
   options: {
@@ -14,6 +15,7 @@ const { values } = parseArgs({
     port: { type: 'string', default: '4310' },
     'preview-port': { type: 'string' },
     project: { type: 'string', default: process.cwd() },
+    component: { type: 'string', multiple: true },
     help: { type: 'boolean', short: 'h' },
   },
 })
@@ -21,8 +23,9 @@ const { values } = parseArgs({
 if (values.help) {
   process.stdout.write(
     'Picaroo — local image editing\n\n' +
-      'picaroo --url http://localhost:4200 [--port 4310] [--preview-port 4311] [--project .]\n\n' +
-      'Start your application normally, then run this command. No framework plugin is required.\n',
+      'picaroo --url http://localhost:4200 [--port 4310] [--preview-port 4311] [--project .]\n' +
+      '        [--component ImagePlaceholder --component MediaSlot]\n\n' +
+      'Start your application normally, then run this command.\n',
   )
 } else {
   const target = new URL(values.url!)
@@ -41,6 +44,7 @@ if (values.help) {
   )
   const integration = await detectProjectIntegration(projectRoot, pkg)
   const framework = integration.label
+  const components = resolveImageComponents(pkg, values.component)
   const port = validPort(values.port, 'editor')
   const previewPort = validPort(values['preview-port'] ?? String(port + 1), 'preview')
   if (previewPort === port) throw new Error('The editor and preview ports must be different.')
@@ -53,6 +57,7 @@ if (values.help) {
     framework,
     integration: integration.id,
     assetDirectory: integration.assetDirectory,
+    components,
   })
   await service.initialize()
 
