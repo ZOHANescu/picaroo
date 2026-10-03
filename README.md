@@ -31,6 +31,7 @@ Picaroo is application-independent: it contains no assumptions about a particula
 - Plain CSS stylesheets.
 - Local JPEG, PNG, WebP, AVIF, and SVG assets.
 - Base64 `data:image/...;base64,...` sources in supported image placements.
+- Alpha-preserving hex recoloring for raster icons, including embedded Base64 PNGs.
 
 Picaroo is currently consumed as a local package, commonly through a Git submodule. Publishing it to npm is outside the current scope.
 
@@ -286,6 +287,8 @@ Existing library SVGs can be reopened with **Edit SVG variant**. Saving a differ
 ## Removing images
 
 Choose **Remove picture from project** in image details to clear the image source while retaining the HTML, JSX, or template element. A uniquely referenced local file is moved to `.picaroo/trash`; embedded Base64 data has no separate file to move. Undo restores both the source value and local file. Picaroo blocks file removal when its static index finds other references, preventing those placements from being broken.
+
+Embedded PNG, JPEG, WebP, and AVIF values expose **Edit color / crop embedded image**. In the image review, enable **Recolor raster icon** and choose a hex color. Picaroo replaces visible RGB pixels while retaining their alpha values and writes the optimized result back as Base64 in the same source field. This is intended for monochrome icons; photographs and multicolor art are flattened to the chosen color.
 
 ## Responsive images and backgrounds
 

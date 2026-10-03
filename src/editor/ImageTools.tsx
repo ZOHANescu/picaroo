@@ -609,6 +609,8 @@ export function ImageReview({
   )
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
+  const [recolor, setRecolor] = useState(false)
+  const [colorInput, setColorInput] = useState('#000000')
   const dialog = useRef<HTMLElement>(null)
   useEffect(() => {
     const previous = document.activeElement
@@ -624,6 +626,8 @@ export function ImageReview({
     return () => URL.revokeObjectURL(objectUrl)
   }, [file])
   const bounds = cropBounds(dimensions.width, dimensions.height, ratio, focusX, focusY)
+  const color = normalizedHex(colorInput)
+  const imageUrl = url ?? preview
   const outputValid =
     Number.isInteger(outputSize.width) &&
     Number.isInteger(outputSize.height) &&
@@ -668,7 +672,7 @@ export function ImageReview({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            if (!busy && loaded && connected && outputValid)
+            if (!busy && loaded && connected && outputValid && (!recolor || color))
               onApply({
                 profile,
                 ratio,
@@ -676,6 +680,7 @@ export function ImageReview({
                 focusY,
                 outputWidth: outputSize.width,
                 outputHeight: outputSize.height,
+                ...(recolor && color ? { color: `#${color}` } : {}),
               })
           }}
         >
@@ -757,10 +762,11 @@ export function ImageReview({
                   )
                 }}
               >
-                {(url || preview) && (
+                {imageUrl && (
                   <img
-                    src={url ?? preview!}
+                    src={imageUrl}
                     alt="Image crop preview"
+                    className={recolor && color ? 'recolor-source' : undefined}
                     onLoad={(event) => {
                       const natural = {
                         width: event.currentTarget.naturalWidth,
@@ -781,6 +787,18 @@ export function ImageReview({
                       setLoaded(false)
                       setError('This file cannot be previewed. Choose a supported raster image.')
                     }}
+                  />
+                )}
+                {imageUrl && recolor && color && (
+                  <span
+                    className="raster-color-preview"
+                    aria-hidden="true"
+                    style={
+                      {
+                        '--raster-color': `#${color}`,
+                        '--raster-mask': `url(${JSON.stringify(imageUrl)})`,
+                      } as CSSProperties
+                    }
                   />
                 )}
                 {loaded && (
@@ -890,6 +908,44 @@ export function ImageReview({
                   {!outputValid && ` Keep the output at or below ${MAX_IMAGE_PIXELS / 1_000_000} MP.`}
                 </p>
               </div>
+              <div className="svg-color-editor raster-color-editor">
+                <label className="raster-color-toggle">
+                  <input
+                    type="checkbox"
+                    checked={recolor}
+                    onChange={(event) => setRecolor(event.target.checked)}
+                  />
+                  <span>
+                    <strong>Recolor raster icon</strong>
+                    <small>Replace every visible pixel with one color and preserve transparency.</small>
+                  </span>
+                </label>
+                {recolor && (
+                  <>
+                    <div className="svg-color-inputs">
+                      <input
+                        type="color"
+                        aria-label="Choose raster color"
+                        value={`#${color ?? '000000'}`}
+                        onChange={(event) => setColorInput(event.target.value)}
+                      />
+                      <label>
+                        Hex color
+                        <input
+                          type="text"
+                          value={colorInput}
+                          spellCheck={false}
+                          aria-invalid={!color}
+                          placeholder="#000000"
+                          onChange={(event) => setColorInput(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    {!color && <p role="alert">Enter a three- or six-digit hex color.</p>}
+                    <small>Best for monochrome PNG icons. Multicolor artwork will be flattened.</small>
+                  </>
+                )}
+              </div>
             </div>
           </fieldset>
           {progress && <SaveProgress progress={progress} />}
@@ -904,7 +960,7 @@ export function ImageReview({
             </button>
             <button
               className="primary-action"
-              disabled={busy || !loaded || !connected || !outputValid}
+              disabled={busy || !loaded || !connected || !outputValid || (recolor && !color)}
             >
               {busy ? 'Saving…' : 'Save image'}
             </button>

@@ -6,6 +6,7 @@ import path from 'node:path'
 import sharp from 'sharp'
 import { optimizeAsset } from './optimize'
 import { ProjectStore } from '../server/store'
+import { DEFAULT_PROFILE } from '../shared'
 
 test('uses requested output dimensions exactly', async () => {
   const input = await sharp({
@@ -21,6 +22,50 @@ test('uses requested output dimensions exactly', async () => {
 
   assert.equal(result.width, 123)
   assert.equal(result.height, 77)
+})
+
+test('recolors raster pixels while preserving transparency', async () => {
+  const pixels = Buffer.alloc(16 * 16 * 4)
+  for (let index = 0; index < pixels.length; index += 4) {
+    pixels[index] = index < pixels.length / 2 ? 240 : 10
+    pixels[index + 1] = index < pixels.length / 2 ? 20 : 220
+    pixels[index + 2] = index < pixels.length / 2 ? 10 : 30
+    pixels[index + 3] = index < pixels.length / 2 ? 255 : 96
+  }
+  const input = await sharp(pixels, { raw: { width: 16, height: 16, channels: 4 } })
+    .png()
+    .toBuffer()
+
+  const result = await optimizeAsset(input, 'raster', {
+    outputWidth: 16,
+    outputHeight: 16,
+    color: '#3a7',
+    profile: { ...DEFAULT_PROFILE, format: 'png' },
+  })
+  const { data, info } = await sharp(result.data).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+
+  assert.equal(result.color, '33aa77')
+  assert.equal(info.channels, 4)
+  for (let index = 0; index < data.length; index += 4) {
+    assert.equal(data[index], 0x33)
+    assert.equal(data[index + 1], 0xaa)
+    assert.equal(data[index + 2], 0x77)
+  }
+  assert.equal(data[3], 255)
+  assert.equal(data.at(-1), 96)
+})
+
+test('rejects invalid raster colors', async () => {
+  const input = await sharp({
+    create: { width: 16, height: 16, channels: 4, background: '#ffffff00' },
+  })
+    .png()
+    .toBuffer()
+
+  await assert.rejects(
+    optimizeAsset(input, 'raster', { color: '#12xz90' }),
+    /valid three- or six-digit hex color/,
+  )
 })
 
 test('rejects output dimensions above the safe pixel limit', async () => {
@@ -201,5 +246,49 @@ test('clears embedded Base64 images without requiring a local file', async (t) =
   const removed = await store.remove(target.id, target.version)
   assert.match(await readFile(sourceFile, 'utf8'), /src=""/)
   await store.undo(removed.history[0].id)
+  assert.equal(await readFile(sourceFile, 'utf8'), source)
+})
+
+test('recolors an embedded Base64 PNG in place and restores it with Undo', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'picaroo-base64-color-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(path.join(root, 'src'), { recursive: true })
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'base64-color-test' }))
+  const sourceFile = path.join(root, 'src', 'App.tsx')
+  const image = await sharp({
+    create: { width: 16, height: 16, channels: 4, background: '#ff000080' },
+  })
+    .png()
+    .toBuffer()
+  const originalDataUrl = `data:image/png;base64,${image.toString('base64')}`
+  const source = `export const App = () => <img src=${JSON.stringify(originalDataUrl)} alt="Notes" />`
+  await writeFile(sourceFile, source)
+  const store = new ProjectStore(root, [])
+  await store.initialize()
+  const target = store.snapshot().targets[0]
+
+  const changed = await store.replace(
+    target.id,
+    target.version,
+    image,
+    {
+      outputWidth: 16,
+      outputHeight: 16,
+      color: '#25a06d',
+      profile: { ...DEFAULT_PROFILE, format: 'png' },
+    },
+    'musical-notes.png',
+  )
+  const editedSource = await readFile(sourceFile, 'utf8')
+  const editedDataUrl = /src="(data:image\/png;base64,[^"]+)"/.exec(editedSource)?.[1]
+
+  assert.ok(editedDataUrl)
+  assert.notEqual(editedDataUrl, originalDataUrl)
+  assert.equal(changed.assets.length, 0)
+  const recolored = Buffer.from(editedDataUrl.slice(editedDataUrl.indexOf(',') + 1), 'base64')
+  const pixel = await sharp(recolored).ensureAlpha().raw().toBuffer()
+  assert.deepEqual([...pixel.subarray(0, 4)], [0x25, 0xa0, 0x6d, 0x80])
+
+  await store.undo(changed.history[0].id)
   assert.equal(await readFile(sourceFile, 'utf8'), source)
 })

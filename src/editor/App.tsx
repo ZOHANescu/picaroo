@@ -234,6 +234,23 @@ export function App() {
     prepareUpload(selected, file)
   }
 
+  async function editEmbeddedRaster(target: Target) {
+    if (busy || !/^data:image\/(?:png|jpe?g|webp|avif);base64,/i.test(target.current)) return
+    try {
+      const blob = await fetch(target.current).then((response) => response.blob())
+      const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type.slice('image/'.length)
+      const stem =
+        target.label
+          .normalize('NFKD')
+          .replace(/[^a-zA-Z0-9_-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .toLowerCase() || 'embedded-image'
+      prepareUpload(target, new File([blob], `${stem}.${extension}`, { type: blob.type }))
+    } catch {
+      setNotice({ error: true, message: 'The embedded image could not be opened.' })
+    }
+  }
+
   function importAsset(file: File) {
     setSaveError('')
     setSaveProgress(null)
@@ -761,6 +778,17 @@ export function App() {
                         Crop / optimize current image
                       </button>
                     )}
+                    {!currentAsset &&
+                      selected.kind === 'raster' &&
+                      /^data:image\/(?:png|jpe?g|webp|avif);base64,/i.test(selected.current) && (
+                        <button
+                          className="secondary-action"
+                          disabled={busy}
+                          onClick={() => void editEmbeddedRaster(selected)}
+                        >
+                          Edit color / crop embedded image
+                        </button>
+                      )}
                     {currentAsset?.kind === 'svg' && (
                       <button
                         className="secondary-action"

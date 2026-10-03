@@ -330,10 +330,15 @@ export class ProjectStore {
       onProgress: (percent) => control.onProgress?.('optimizing', percent),
     })
     throwIfCancelled(control.signal)
+    const embedded = /^data:image\/(?:png|jpe?g|webp|avif);base64,/i.test(target.current)
     const directory =
       target.assetDirectory ?? (target.binding ? 'src/assets/picaroo' : this.assetDirectory)
-    const asset = this.generatedAssetPath(directory, originalName, optimized)
-    const publicUrl = this.publicUrl(asset)
+    const asset = embedded ? '' : this.generatedAssetPath(directory, originalName, optimized)
+    const mime =
+      optimized.extension === 'jpg' ? 'image/jpeg' : `image/${optimized.extension}`
+    const publicUrl = embedded
+      ? `data:${mime};base64,${optimized.data.toString('base64')}`
+      : this.publicUrl(asset)
     const document = target.data ? this.index.documents.get(target.data.file)! : undefined
     const file = target.data?.file ?? target.file
     const before = document?.source ?? source
@@ -354,7 +359,7 @@ export class ProjectStore {
             ? replaceAngularReference(source, target, publicUrl)
             : target.html
               ? replaceHtmlReference(source, target, publicUrl)
-            : replaceReference(source, target, asset)
+            : replaceReference(source, target, embedded ? publicUrl : asset)
     if (!document) {
       if (target.visual?.type === 'css') analyzeCss(after, file)
       else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
@@ -363,7 +368,7 @@ export class ProjectStore {
     }
     throwIfCancelled(control.signal)
     control.onProgress?.('saving', 76)
-    const assetCreated = await this.saveAsset(asset, optimized.data)
+    const assetCreated = embedded ? false : await this.saveAsset(asset, optimized.data)
     try {
       throwIfCancelled(control.signal)
       control.onProgress?.('saving', 86)

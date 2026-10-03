@@ -471,7 +471,7 @@ export function replaceReference(source: string, target: SourceTarget, asset: st
       output.overwrite(target.start, target.end, `{${name}}`)
     }
   } else {
-    const url = `/${slash(asset).replace(/^public\//, '')}`
+    const url = /^data:/i.test(asset) ? asset : `/${slash(asset).replace(/^public\//, '')}`
     if (target.hasSource) output.overwrite(target.start, target.end, JSON.stringify(url))
     else output.appendLeft(target.insertion, ` src=${JSON.stringify(url)} `)
   }
