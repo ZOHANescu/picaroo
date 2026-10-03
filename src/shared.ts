@@ -1,6 +1,6 @@
 export type AssetKind = 'raster' | 'svg'
 
-export const MAX_UPLOAD_MB = 30
+export const MAX_UPLOAD_MB = 50
 export const MAX_UPLOAD = MAX_UPLOAD_MB * 1024 * 1024
 
 export interface Target {
