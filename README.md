@@ -1,78 +1,67 @@
 # Picaroo
 
-Picaroo is a local visual image editor for web application development. It opens a running application inside an editing workspace, identifies supported image locations, and lets a developer replace images by dropping files directly onto the rendered page.
+Picaroo is a local, visual image editor for web applications. Open your running app in Picaroo, select an image, and replace, crop, resize, recolor, reuse, or remove it. Picaroo writes the result back to your source code and asset folders—there is no hosted asset service and nothing is added to the production runtime.
 
-Changes are written back to the application's source files, JSON data, and asset directories. Picaroo does not use a hosted asset service or a runtime image manifest, and it is never included in the production application.
+Source-aware editing supports **React**, **Angular**, and **plain HTML**. Any project served by a local HTTP development server can use the visual workspace, asset library, and project-wide usage scan.
 
-Picaroo is application-independent: it contains no assumptions about a particular website, brand, page structure, or data model. Its standalone preview gateway works with local HTTP development servers, while small development-only integrations provide framework-aware source detection. Source-aware editing currently supports **React**, **Angular**, and **plain HTML**, and every project benefits from the asset library and project-wide usage scan.
+## What you can do
 
-## What Picaroo does
+- Replace images and SVGs directly on the rendered page.
+- Crop raster images, set a focal point, choose exact output dimensions, and convert to WebP, AVIF, JPEG, or PNG.
+- Resize and recolor SVGs, then save reusable variants without overwriting the original.
+- Recolor raster icons while preserving transparency, including embedded Base64 images.
+- Edit image paths in JSX/TSX, Angular templates, plain HTML, CSS backgrounds, JSON data, inline SVGs, and existing `srcSet` candidates.
+- Browse every project asset, inspect dimensions and usage, and reuse an existing image.
+- Remove an image reference and move an unused local file to recoverable Picaroo trash.
+- Undo the latest source and asset changes safely.
 
-- Shows the running application in a visual editing workspace.
-- Adds selectable drop zones to supported images and SVGs.
-- Validates raster and SVG replacements before changing the project.
-- Optimizes raster images and writes production-ready assets.
-- Updates JSX, TSX, CSS, imports, public URLs, and supported JSON fields.
-- Tracks static image usage across the whole project.
-- Provides a reusable local asset library with thumbnails and filters.
-- Supports crop ratios, focal points, output formats, quality, and exact per-image dimensions.
-- Edits individual records in supported JSON-backed lists and galleries.
-- Handles CSS backgrounds, inline SVG, and existing responsive `srcSet` candidates.
-- Keeps persistent, source-aware Undo history.
-- Moves eligible unused generated assets to recoverable Picaroo trash.
-
-## Supported environment
+## Requirements and support
 
 - Node.js 22 or newer.
-- Any application served from a local HTTP development server.
-- React JSX/TSX, Angular HTML templates (including static inline templates), or plain HTML.
-- PrimeNG `p-image`, `p-avatar`, and image-bearing `p-chip` components.
-- The standard `public/` directory or Angular's `src/assets/` directory.
-- Plain CSS stylesheets.
-- Local JPEG, PNG, WebP, AVIF, and SVG assets.
-- Base64 `data:image/...;base64,...` sources in supported image placements.
-- Alpha-preserving hex recoloring for raster icons, including embedded Base64 PNGs.
+- A local HTTP development server.
+- JPEG, PNG, WebP, AVIF, and SVG assets up to 50 MB and 64 megapixels.
+- A standard `public/` directory or Angular `src/assets/` directory.
 
-Picaroo is currently consumed as a local package, commonly through a Git submodule. Publishing it to npm is outside the current scope.
+Picaroo understands native images, CSS backgrounds, static inline SVGs, React asset imports, Angular static bindings and readonly data, direct JSON imports, and PrimeNG `p-image`, `p-avatar`, and image-bearing `p-chip` components. Dynamic or unresolved expressions are marked **Needs mapping** instead of being rewritten speculatively.
 
-## Add Picaroo to an application
+Picaroo is currently installed as a local package, usually through a Git submodule. It is not published to npm.
 
-Add the Picaroo repository as a submodule from the application root:
+## Install
+
+From the application root, add Picaroo as a submodule and local development dependency:
 
 ```sh
 git submodule add <PICAROO_REPOSITORY_URL> external/picaroo
 ```
 
-Add the local package to the application's `package.json`:
-
 ```json
 {
   "devDependencies": {
     "picaroo": "file:external/picaroo"
-  }
-}
-```
-
-Add a convenient script. Replace port `4200` if the application uses another development port:
-
-```json
-{
+  },
   "scripts": {
-    "picaroo": "picaroo --url http://localhost:4200",
-    "picaroo:typecheck": "tsc --noEmit -p external/picaroo/tsconfig.json"
+    "picaroo": "picaroo --url http://localhost:4200"
   }
 }
 ```
 
-Install dependencies from the application root:
+Replace `4200` with your application's development port, then install dependencies:
 
 ```sh
 npm install
 ```
 
-Picaroo runs a local preview gateway in front of the development server and injects its editing overlay only into that preview. Angular and plain HTML targets are matched from their rendered image URLs and need no build integration.
+Add Picaroo's local state to the consuming application's `.gitignore`:
 
-React + Vite projects should also enable the development-only `picaroo/vite` adapter. It adds stable `data-picaroo-id` attributes before React compiles JSX, which distinguishes repeated URLs and makes empty registered image slots selectable. The adapter applies only while serving development builds and is not included in production output:
+```gitignore
+.picaroo/
+```
+
+Generated assets under `public/picaroo/` or `src/assets/picaroo/` are normal project files and can be committed.
+
+### React + Vite
+
+React + Vite projects should enable the development-only adapter. It gives repeated image URLs stable identities and makes registered empty image slots selectable. It does not affect production builds.
 
 ```ts
 import { defineConfig } from 'vite'
@@ -84,9 +73,11 @@ export default defineConfig({
 })
 ```
 
-### Custom image-slot components
+Angular and plain HTML projects need no build integration.
 
-Standard `<img>` and supported SVG markup work without component registration. A React project can also register components that accept a `src` property and forward `data-picaroo-id` to their visible root element. Put the shared registration in the consuming project's `package.json` so the standalone service and Vite instrumentation use exactly the same names:
+### Custom React image components
+
+Register application-owned components that accept a `src` prop and forward `data-picaroo-id` to their visible root element:
 
 ```json
 {
@@ -96,248 +87,87 @@ Standard `<img>` and supported SVG markup work without component registration. A
 }
 ```
 
-The Vite plugin reads that configuration automatically. Additional names can still be supplied directly when needed:
-
-```ts
-export default defineConfig({
-  plugins: [
-    picaroo({
-      components: ['ProjectImage'],
-    }),
-    react(),
-  ],
-})
-```
-
-A registered component must preserve the injected development attribute:
-
 ```tsx
-type MediaSlotProps = React.HTMLAttributes<HTMLDivElement> & {
-  src?: string
-  label: string
-}
-
-export function MediaSlot({ src, label, ...rootProps }: MediaSlotProps) {
-  return <div {...rootProps}>{src ? <img src={src} alt={label} /> : <span>{label}</span>}</div>
+export function MediaSlot({ src, label, ...rootProps }) {
+  return <div {...rootProps}>{src ? <img src={src} alt={label} /> : label}</div>
 }
 ```
 
-This makes an empty slot editable before it has an image. Registration should be limited to application-owned components whose source contract is known.
+The CLI and Vite adapter both read this configuration. For a one-off run, add names with `--component MediaSlot`.
 
-For a one-off standalone run, repeat `--component` for each extra name. These additions should match the names passed to the Vite adapter:
+## Run
 
-```sh
-npx picaroo --url http://localhost:5173 --component ImagePlaceholder --component MediaSlot
-```
-
-## Ignore local Picaroo state
-
-Add this entry to the consuming application's `.gitignore`:
-
-```gitignore
-.picaroo/
-```
-
-`.picaroo/history.json` stores local Undo data, `.picaroo/settings.json` stores project preferences, and `.picaroo/trash/` stores recoverable archived assets. Generated application assets under `public/picaroo/` or `src/assets/picaroo/` are normal project files and may be committed.
-
-## Run Picaroo
-
-Run the application and Picaroo from the consuming application root in two terminals.
-
-Terminal 1:
+Keep the application and Picaroo running in separate terminals:
 
 ```sh
+# Terminal 1
 npm run dev
-```
 
-Terminal 2:
-
-```sh
+# Terminal 2
 npm run picaroo
 ```
 
-Open [http://localhost:4310](http://localhost:4310). Picaroo connects to the application URL configured in the `picaroo` script through an isolated local preview on port `4311`.
-
-The default editor port is `4310`. Both values can be changed:
+Open [http://localhost:4310](http://localhost:4310). Use `--port`, `--preview-port`, and `--project` to change the defaults:
 
 ```sh
 npx picaroo --url http://localhost:3000 --port 4310 --preview-port 4311 --project .
 ```
 
-Keep both development servers running while editing.
+## Typical workflow
 
-## Basic workflow
+1. Open a route in Picaroo's embedded preview.
+2. Select a highlighted image or choose one from **Page images**.
+3. Drop a replacement, choose a library asset, edit the current image, or remove it.
+4. Review crop, size, format, quality, or SVG color settings and save.
+5. Let the application refresh; use **Change history** if you need to undo.
 
-1. Open a route containing an image in the embedded application preview.
-2. Keep **Edit images** enabled.
-3. Select a highlighted image in the preview or the **Page images** list.
-4. Drop one replacement file or use the file chooser.
-5. Review raster crop and optimization settings or SVG dimensions, then save the image.
-6. Follow the upload, preparation, optimization, save, and preview-refresh steps. Select **Cancel process** to stop an active raster save safely.
-7. Let Vite refresh the application preview.
-8. Use **Change history** to undo the newest change when needed.
+Switch to **Browse** for normal application navigation. Desktop and mobile controls change the preview viewport.
 
-Switch to **Browse** when normal application navigation is needed. Desktop and mobile buttons change the preview viewport.
+## Where Picaroo can write
 
-If a save fails, the raster review remains open with the selected file and crop settings. If application source changed externally, cancel the review, select the refreshed target, and try again. Check Change history before repeating a save interrupted by a preview reload.
+| Source | Supported edits |
+| --- | --- |
+| React JSX/TSX | Literal paths, direct asset imports, registered image components, static JSON fields, inline styles, inline SVG, and literal `srcSet` |
+| Angular | Static template sources, static bindings, readonly object/array fields, `@for` records, PrimeNG image components, inline templates, and CSS |
+| Plain HTML | Image sources, inline SVG, responsive candidates, and linked CSS backgrounds |
+| JSON | Direct imported string fields and direct array `.map()` records |
+| CSS | Literal `url(...)` values in `background` and `background-image` |
 
-## Supported source patterns
+Editing a source inside a reusable component may change every rendered instance. Picaroo reports shared placements and forks a direct asset import when one placement can be changed safely.
 
-| Source pattern                                                      | Behavior                                                                           |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `<img src="/images/photo.jpg" />`                                   | Writes an optimized asset under `public/picaroo/` and changes the literal URL.     |
-| `<img src="assets/photo.jpg">` in an Angular template               | Writes under `src/assets/picaroo/` when that asset root exists and updates the template. |
-| `<img [src]="'assets/photo.jpg'">` in an Angular template           | Preserves the Angular binding and replaces its static string expression.           |
-| `<img [src]="images.hero.src">` backed by a readonly TS object      | Updates the exact string in the component's static object initializer.             |
-| An Angular `@for` or PrimeNG carousel over a readonly TS array       | Resolves each static record and updates only the selected image string.             |
-| `<p-image src="assets/photo.jpg" />`                                | Selects the rendered PrimeNG image and updates the component source.                |
-| `<p-avatar image="assets/person.jpg" />`                            | Supports PrimeNG avatar and chip image properties as editable image targets.        |
-| `<img src={photo} />` using a direct default asset import           | Writes under `src/assets/picaroo/` and updates or safely forks the import.         |
-| An SVG rendered through `<img>`                                     | Validates and optimizes a static SVG before updating its path.                     |
-| A registered empty slot component                                   | Adds a `src` property at the component call site.                                  |
-| A direct imported JSON field such as `content.hero.image`           | Updates that JSON string while retaining the component binding.                    |
-| A direct JSON array `.map((item, index) => ...)` using `item.image` | Identifies and updates the selected JSON record.                                   |
-| CSS `background` or `background-image`                              | Replaces one URL while retaining other background layers and values.               |
-| A literal JSX `style` background                                    | Updates the selected URL inside the style object.                                  |
-| A static inline `<svg>`                                             | Replaces vector content and `viewBox` while retaining root application attributes. |
-| Literal `srcSet` on `<img>` or `<picture><source>`                  | Treats each candidate as a separate target and retains other candidates.           |
+Computed URLs, API-provided images, spread props, transformed collections, CSS variables, preprocessors, Vue/Svelte rewriting, and runtime-generated values require manual source changes. Picaroo edits an existing static responsive set but does not generate a new one.
 
-Computed or unresolved expressions, spread props, transformed collections, runtime-generated URLs, and unsupported bindings are shown as **Needs mapping** rather than being rewritten speculatively.
+## Image output
 
-Editing a source inside a reusable component changes every rendered instance of that source. Picaroo reports multiple instances on the current page. Direct shared asset imports are forked when a single placement can be changed safely.
+Raster replacements default to auto-orientation, WebP quality 85, a 2400 × 2400 maximum, and no upscaling. The review dialog can request exact dimensions—including intentional upscaling—up to 64 megapixels. Project defaults control format, quality, maximum dimensions, and hashed or readable filenames.
 
-## JSON-backed images
+SVGs can be resized and recolored before SVGO optimization. Picaroo preserves transparency, `viewBox`, gradients, patterns, and opacity, but intentionally flattens solid multicolor artwork when a replacement color is selected. Unsafe active or external SVG content is rejected.
 
-Picaroo supports direct default JSON imports and existing string fields. Empty image strings can serve as editable placeholders:
+Raster recoloring preserves alpha but replaces visible RGB values, so it is intended for monochrome icons rather than photographs.
 
-```tsx
-import content from './content.json'
-import cards from './cards.json'
+## Asset library, history, and trash
 
-export function LandingPage() {
-  return (
-    <>
-      <img src={content.hero.image} alt={content.hero.title} />
+The asset library scans supported project files without requiring every route to be opened. It shows thumbnails, dimensions, file sizes, and static references, and lets you filter, reuse, import, or create SVG variants.
 
-      {cards.map((card, index) => (
-        <img key={card.id} src={card.image} alt={card.title} />
-      ))}
-    </>
-  )
-}
-```
+**No static references** means Picaroo found no supported reference; it is not proof that an asset is unused at runtime.
 
-For repeated records, both callback parameters must be named identifiers. Keep the imported array in its original order. Filtering, sorting, mutation, nested transformations, destructuring, and JSON imports through aliases require manual source changes.
-
-Image details show the JSON file and JSON Pointer associated with a mapped target. Replacing the rendered image updates only that JSON string. Multiple recognized consumers are reported because they share the same stored value.
-
-JSON writes preserve surrounding formatting and properties. Duplicate JSON keys are rejected, and source and data versions are checked immediately before saving.
-
-## Asset library and usage index
-
-The **Asset library** scans the project without requiring every route to be opened. It provides:
-
-- Raster and SVG thumbnails.
-- Filename and directory search.
-- Asset-type and usage filters.
-- Dimensions and file sizes.
-- Imports, literal paths, CSS URLs, JSON fields, and mapped consumers.
-- Reuse across compatible image targets.
-- Importing without immediately changing a placement.
-- Reopening SVG assets to create new size and color variants without overwriting the original.
-
-The index is static analysis. Computed URLs, API-provided assets, arbitrary runtime transformations, and unsupported aliases may not be detected. **No static references** means the index found no supported reference; it is not proof that an asset is unused at runtime.
-
-The scan excludes hidden directories, symlinks, dependencies, build output, and Picaroo's own submodule. It supports up to 15,000 relevant files, image files up to 50 MB, and source files up to 2 MB. Coverage problems appear in the library.
-
-## Image optimization
-
-Raster input supports JPEG, PNG, WebP, and AVIF. Picaroo rejects animated images and inputs above 64 million pixels or 50 MB.
-
-Default raster processing:
-
-- Auto-orientation.
-- WebP output at quality 85.
-- Maximum 2400 × 2400 bounding box.
-- No upscaling.
-- Optional aspect-ratio crop and focal point.
-
-In the image review dialog, the uploaded image's own resolution is used as the initial output size. Editing **Output width** or **Output height** requests that exact final resolution (up to 64 megapixels), including intentional upscaling. Changing the crop shape resets the output dimensions to the crop's native pixel size.
-
-Open **Asset library → Project optimization defaults** to choose WebP, AVIF, JPEG, or lossless PNG; quality from 1–100; and maximum dimensions from 16–4096 pixels for background imports and operations that do not provide an exact output size. JPEG transparency is flattened onto white.
-
-Generated filenames are hashed by default:
+Picaroo stores its local state in:
 
 ```text
-3f98ab12c5d4f017a493cc72.webp
+.picaroo/history.json   Up to 50 source-aware Undo entries
+.picaroo/settings.json  Project output preferences
+.picaroo/trash/         Recoverable removed or archived assets
 ```
 
-Turn off **Hash generated filenames** to use the upload name and actual optimized dimensions:
+Trash is never purged automatically. Undo refuses to overwrite source or asset files that changed outside Picaroo.
 
-```text
-homepage-hero_2000x1000.webp
-```
+## Safety
 
-If that readable name already belongs to different contents, Picaroo adds a short hash suffix instead of overwriting it. The setting affects future replacements and library imports. Existing assets are not renamed.
+Picaroo accepts write requests only from loopback connections, uses an ephemeral session token, confines paths to the application root, blocks writes to `.git` and `node_modules`, checks source versions before saving, and serializes atomic file writes.
 
-SVG input opens a vector review dialog for intrinsic width, height, and a hex color. Solid fills and strokes are recolored in the live preview while `none`, transparency, gradients, patterns, and opacity are preserved. The result passes through SVGO while retaining `viewBox` and IDs. Customized variants use readable names such as `location-pin_32x32_ff5733.svg` even when hashed filenames are enabled. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
+Avoid editing the same source location in your code editor while Picaroo is saving it.
 
-Existing library SVGs can be reopened with **Edit SVG variant**. Saving a different size or color creates another asset and selects it in the library; the original remains unchanged. When the readable filename is already occupied by different SVG content, a short content hash is appended. SVGs without a `viewBox` are accepted for resizing only when they provide numeric width and height. Multi-color solid artwork is intentionally flattened to the selected color, while local gradients and transparent regions are retained.
-
-## Removing images
-
-Choose **Remove picture from project** in image details to clear the image source while retaining the HTML, JSX, or template element. A uniquely referenced local file is moved to `.picaroo/trash`; embedded Base64 data has no separate file to move. Undo restores both the source value and local file. Picaroo blocks file removal when its static index finds other references, preventing those placements from being broken.
-
-Embedded PNG, JPEG, WebP, and AVIF values expose **Edit color / crop embedded image**. In the image review, enable **Recolor raster icon** and choose a hex color. Picaroo replaces visible RGB pixels while retaining their alpha values and writes the optimized result back as Base64 in the same source field. This is intended for monochrome icons; photographs and multicolor art are flattened to the chosen color.
-
-## Responsive images and backgrounds
-
-Picaroo edits candidates in an existing literal `srcSet`. Width candidates are capped at their declared width, descriptors are adjusted to actual output width, and duplicate descriptors are rejected. Media conditions, `sizes`, density descriptors, fallback sources, and untouched candidates remain in place.
-
-Invalid responsive lists, mixed width and density descriptors, dynamic values, data URLs, blob URLs, and unsupported MIME declarations require manual editing. Picaroo does not automatically generate a new responsive image set.
-
-CSS targets appear when an element uses the exact indexed URL and its media or supports conditions are active. A shared CSS rule changes all matching elements. Pseudo-elements, CSS modules, preprocessors, CSS variables, nesting, and runtime expressions require manual editing.
-
-## Undo and unused assets
-
-Picaroo records the 50 most recent changes in `.picaroo/history.json`. Undo restores the newest compatible source state and refuses to overwrite unrelated external edits. Generated assets remain in the project after source Undo because another source file may reference them.
-
-The library can move an eligible generated asset to `.picaroo/trash/` when the index finds no references or retained Undo dependency. Cleanup is restricted to `public/picaroo/` and `src/assets/picaroo/`; authored assets elsewhere are not cleanup candidates.
-
-Trash is never purged automatically. Undo restores an archived file without overwriting a new file at its original path and validates the archived contents before restoration.
-
-## Safety model
-
-- The write API accepts loopback connections only.
-- Every editor session uses an ephemeral token.
-- Request origins are checked.
-- Paths are confined to the consuming application root.
-- Existing symlink ancestors are checked before writes.
-- `.git` and `node_modules` are never writable targets.
-- Source contents and versions are checked again before saving.
-- Writes are serialized and use temporary sibling files followed by rename.
-- The overlay accepts messages only from its configured editor origin.
-
-Picaroo uses optimistic source checks rather than a filesystem lock shared with the code editor. Avoid editing the same source location while an image replacement is being saved.
-
-## Cloning an application that uses the submodule
-
-Clone the application and its submodules together:
-
-```sh
-git clone --recurse-submodules <APPLICATION_REPOSITORY_URL>
-cd <APPLICATION_DIRECTORY>
-npm install
-```
-
-For an existing clone:
-
-```sh
-git submodule update --init --recursive
-npm install
-```
-
-To select a newer Picaroo revision:
+## Update a consuming project
 
 ```sh
 git -C external/picaroo fetch origin
@@ -347,39 +177,16 @@ git add external/picaroo package-lock.json
 git commit -m "chore: update Picaroo"
 ```
 
-The consuming repository pins one exact Picaroo commit, so application builds do not change when the standalone Picaroo repository moves forward.
+The submodule pins an exact Picaroo revision, so consuming applications do not change until you update that revision.
 
-## Developing Picaroo
-
-Inside the standalone Picaroo repository:
+## Develop Picaroo
 
 ```sh
 npm install
+npm test
 npm run typecheck
 ```
 
-When editing Picaroo through a submodule, switch the submodule to a branch before committing:
+Picaroo runs its TypeScript source through `tsx`; there is no separate build step.
 
-```sh
-git -C external/picaroo switch main
-```
-
-Commit and push changes inside the Picaroo repository first. Then commit the updated `external/picaroo` gitlink in each consuming application that should use that revision.
-
-## Package layout
-
-```text
-bin/picaroo.mjs       CLI entry and TypeScript runtime loader
-vite.mjs              Vite integration entry
-src/cli.ts            Editor server and standalone integration
-src/editor/           React editor workspace
-src/integrations/     Framework detection and shared component registration
-src/overlay.ts        Framework-neutral DOM overlay and message bridge
-src/vite.ts           Development-only React + Vite instrumentation
-src/source-edits/     React, Angular, HTML, JSON, CSS, SVG, and responsive source editing
-src/server/           Asset index, confined writes, and persistent Undo
-src/assets/           Raster and SVG processing
-src/shared.ts         Shared editor and bridge types
-```
-
-Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. React source instrumentation is provided by the development-only Vite adapter; Angular and plain HTML use source analysis plus rendered URL matching through the standalone gateway. Computed or mutable Angular expressions, Vue/Svelte template rewriting, SSR-only images, custom asset mappings, automatic responsive-set generation, and npm distribution remain future adaptations.
+See [RELEASE_NOTES.md](./RELEASE_NOTES.md) for version highlights and upgrade notes.
