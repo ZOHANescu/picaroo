@@ -514,7 +514,8 @@ export function App() {
                     <h3>Let’s connect your app.</h3>
                     <p>
                       Start your app normally, then keep its local development server running.
-                      Picaroo connects through its own preview—no framework plugin is required.
+                      Picaroo connects through its own preview. React + Vite projects should keep
+                      the development-only Picaroo adapter enabled for source instrumentation.
                     </p>
                     <p>
                       Target: {targetUrl}

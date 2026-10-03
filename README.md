@@ -4,7 +4,7 @@ Picaroo is a local visual image editor for web application development. It opens
 
 Changes are written back to the application's source files, JSON data, and asset directories. Picaroo does not use a hosted asset service or a runtime image manifest, and it is never included in the production application.
 
-Picaroo is application-independent: it contains no assumptions about a particular website, brand, page structure, or data model. Its standalone preview gateway works with any local HTTP development server without changing that application's build configuration. Source-aware editing currently supports **React** and **Angular**, while every framework benefits from the asset library and project-wide usage scan.
+Picaroo is application-independent: it contains no assumptions about a particular website, brand, page structure, or data model. Its standalone preview gateway works with local HTTP development servers, while small development-only integrations provide framework-aware source detection. Source-aware editing currently supports **React**, **Angular**, and **plain HTML**, and every project benefits from the asset library and project-wide usage scan.
 
 ## What Picaroo does
 
@@ -25,7 +25,7 @@ Picaroo is application-independent: it contains no assumptions about a particula
 
 - Node.js 22 or newer.
 - Any application served from a local HTTP development server.
-- React JSX/TSX or Angular HTML templates (including static inline templates).
+- React JSX/TSX, Angular HTML templates (including static inline templates), or plain HTML.
 - PrimeNG `p-image`, `p-avatar`, and image-bearing `p-chip` components.
 - The standard `public/` directory or Angular's `src/assets/` directory.
 - Plain CSS stylesheets.
@@ -68,19 +68,39 @@ Install dependencies from the application root:
 npm install
 ```
 
-No Angular builder, Vite plugin, webpack loader, or production dependency is required. Picaroo runs a local preview gateway in front of the development server and injects its editing overlay only into that preview.
+Picaroo runs a local preview gateway in front of the development server and injects its editing overlay only into that preview. Angular and plain HTML targets are matched from their rendered image URLs and need no build integration.
 
-The `picaroo/vite` adapter remains available for existing React + Vite integrations, but new projects should use the standalone command.
+React + Vite projects should also enable the development-only `picaroo/vite` adapter. It adds stable `data-picaroo-id` attributes before React compiles JSX, which distinguishes repeated URLs and makes empty registered image slots selectable. The adapter applies only while serving development builds and is not included in production output:
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { picaroo } from 'picaroo/vite'
+
+export default defineConfig({
+  plugins: [picaroo(), react()],
+})
+```
 
 ### Custom image-slot components
 
-Standard `<img>` and supported SVG markup work without component registration. An application can also register components that accept a `src` property and forward `data-picaroo-id` to their visible root element:
+Standard `<img>` and supported SVG markup work without component registration. A React project can also register components that accept a `src` property and forward `data-picaroo-id` to their visible root element. Put the shared registration in the consuming project's `package.json` so the standalone service and Vite instrumentation use exactly the same names:
+
+```json
+{
+  "picaroo": {
+    "components": ["ImagePlaceholder", "MediaSlot"]
+  }
+}
+```
+
+The Vite plugin reads that configuration automatically. Additional names can still be supplied directly when needed:
 
 ```ts
 export default defineConfig({
   plugins: [
     picaroo({
-      components: ['ImageSlot', 'ProjectIcon'],
+      components: ['ProjectImage'],
     }),
     react(),
   ],
@@ -90,17 +110,23 @@ export default defineConfig({
 A registered component must preserve the injected development attribute:
 
 ```tsx
-type ImageSlotProps = React.HTMLAttributes<HTMLDivElement> & {
+type MediaSlotProps = React.HTMLAttributes<HTMLDivElement> & {
   src?: string
   label: string
 }
 
-export function ImageSlot({ src, label, ...rootProps }: ImageSlotProps) {
+export function MediaSlot({ src, label, ...rootProps }: MediaSlotProps) {
   return <div {...rootProps}>{src ? <img src={src} alt={label} /> : <span>{label}</span>}</div>
 }
 ```
 
 This makes an empty slot editable before it has an image. Registration should be limited to application-owned components whose source contract is known.
+
+For a one-off standalone run, repeat `--component` for each extra name. These additions should match the names passed to the Vite adapter:
+
+```sh
+npx picaroo --url http://localhost:5173 --component ImagePlaceholder --component MediaSlot
+```
 
 ## Ignore local Picaroo state
 
@@ -331,14 +357,15 @@ Commit and push changes inside the Picaroo repository first. Then commit the upd
 ```text
 bin/picaroo.mjs       CLI entry and TypeScript runtime loader
 vite.mjs              Vite integration entry
-src/cli.ts            Editor server, project detection, and standalone integration
+src/cli.ts            Editor server and standalone integration
 src/editor/           React editor workspace
+src/integrations/     Framework detection and shared component registration
 src/overlay.ts        Framework-neutral DOM overlay and message bridge
-src/vite.ts           Optional legacy Vite adapter
-src/source-edits/     React, Angular, JSON, CSS, SVG, and responsive source editing
+src/vite.ts           Development-only React + Vite instrumentation
+src/source-edits/     React, Angular, HTML, JSON, CSS, SVG, and responsive source editing
 src/server/           Asset index, confined writes, and persistent Undo
 src/assets/           Raster and SVG processing
 src/shared.ts         Shared editor and bridge types
 ```
 
-Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. React and Angular source editing are functional through the standalone gateway. Computed or mutable Angular expressions, Vue/Svelte template rewriting, SSR-only images, custom asset mappings, automatic responsive-set generation, and npm distribution remain future adaptations.
+Picaroo runs its TypeScript source through `tsx`, so it currently has no separate build step. React source instrumentation is provided by the development-only Vite adapter; Angular and plain HTML use source analysis plus rendered URL matching through the standalone gateway. Computed or mutable Angular expressions, Vue/Svelte template rewriting, SSR-only images, custom asset mappings, automatic responsive-set generation, and npm distribution remain future adaptations.

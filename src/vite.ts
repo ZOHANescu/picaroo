@@ -13,10 +13,7 @@ export interface PicarooOptions {
   components?: string[]
 }
 
-/**
- * Backward-compatible Vite adapter. New projects can use the standalone `picaroo` command
- * without changing their build configuration.
- */
+/** Development-only React instrumentation and Picaroo service adapter for Vite. */
 export function picaroo(options: PicarooOptions = {}): Plugin {
   let service: PicarooService
   let server: ViteDevServer
