@@ -376,6 +376,8 @@ export function App() {
                   <small>
                     {change.operation === 'archive'
                       ? 'Moved to Picaroo trash'
+                      : change.operation === 'remove'
+                        ? 'Removed image and local file'
                       : change.operation === 'map'
                         ? 'Linked JSON field'
                         : change.operation === 'reuse'
@@ -823,6 +825,22 @@ export function App() {
                           : `Auto-oriented. ${snapshot?.settings.format.toUpperCase() ?? 'WEBP'} defaults; crop and adjust output before saving.`}
                       </p>
                     </div>
+                    {(selected.current || selected.presentation === 'inline-svg') && (
+                      <button
+                        className="secondary-action remove-picture-action"
+                        disabled={busy || connection !== 'connected'}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              'Remove this image reference? Its local file will be moved to Picaroo trash when it is not used elsewhere. The image element will remain.',
+                            )
+                          )
+                            send({ type: 'remove', id: selected.id, version: selected.version })
+                        }}
+                      >
+                        Remove picture from project
+                      </button>
+                    )}
                   </>
                 )}
               </>

@@ -477,7 +477,7 @@ if (window.parent !== window) {
         'Image added to your reusable library.',
         message.requestId,
       )
-    } else if (['reuse', 'map', 'settings', 'archive', 'reprocess'].includes(message.type)) {
+    } else if (['reuse', 'map', 'settings', 'archive', 'reprocess', 'remove'].includes(message.type)) {
       void mutate(
         () =>
           api(message.type, {
@@ -491,6 +491,8 @@ if (window.parent !== window) {
             ? 'Asset moved to Picaroo trash. Restore it from Change history.'
             : message.type === 'reprocess'
               ? 'Variant saved as a new asset. Undo restores the previous source.'
+              : message.type === 'remove'
+                ? 'Image reference removed. A local file was moved to Picaroo trash when present.'
               : message.type === 'reuse'
                 ? 'Library image applied. Your source has been updated.'
                 : 'Image linked to the JSON field. Future replacements will edit that field.',

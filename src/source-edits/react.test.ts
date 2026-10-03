@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { analyze, instrument } from './react'
-import { replaceVisual } from './visual'
+import { analyze, clearReference, instrument } from './react'
+import { clearVisual, replaceVisual } from './visual'
 
 test('instruments native images and registered React image components', () => {
   const source = `
@@ -27,6 +27,27 @@ test('does not treat unregistered React components as image slots', () => {
   const targets = analyze(source, 'src/App.tsx', [])
   assert.equal(targets.length, 1)
   assert.equal(targets[0].current, '/images/photo.webp')
+})
+
+test('supports and clears Base64 image sources without removing the element', () => {
+  const source = '<img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline" />'
+  const target = analyze(source, 'src/App.tsx', [])[0]
+
+  assert.equal(target.current, 'data:image/png;base64,iVBORw0KGgo=')
+  assert.equal(target.kind, 'raster')
+  assert.equal(clearReference(source, target), '<img src="" alt="Inline" />')
+})
+
+test('removes one responsive candidate while preserving the others', () => {
+  const source = '<img src="/fallback.jpg" srcSet="/small.jpg 320w, /large.jpg 1280w" />'
+  const target = analyze(source, 'src/App.tsx', []).find(
+    (candidate) => candidate.descriptor === '320w',
+  )!
+
+  assert.equal(
+    clearVisual(source, target),
+    '<img src="/fallback.jpg" srcSet="/large.jpg 1280w" />',
+  )
 })
 
 test('updates inline SVG dimensions when replacing its vector content', () => {

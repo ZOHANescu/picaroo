@@ -4,6 +4,7 @@ import { hash } from '../hash'
 import type { SourceTarget } from './react'
 
 const imageUrl = /\.(?:svg|png|jpe?g|webp|avif)(?:[?#].*)?$/i
+const base64Image = /^data:image\/(?:png|jpe?g|webp|avif|svg\+xml);base64,/i
 const attributePattern = /([:\w.-]+)\s*=\s*(["'])([\s\S]*?)\2/g
 
 interface Attribute {
@@ -22,7 +23,7 @@ export function analyzeHtml(source: string, file: string, assetDirectory = 'publ
     if (attributes.some((attribute) => attribute.name.toLowerCase() === 'data-picaroo-id'))
       continue
     const src = attributes.find((attribute) => attribute.name.toLowerCase() === 'src')
-    if (!src || !imageUrl.test(src.value) || /^(?:data:|blob:)/i.test(src.value)) continue
+    if (!src || (!imageUrl.test(src.value) && !base64Image.test(src.value))) continue
     const alt = attributes.find((attribute) => attribute.name.toLowerCase() === 'alt')
     const line = source.slice(0, tag.index).split('\n').length
     targets.push({
@@ -30,7 +31,10 @@ export function analyzeHtml(source: string, file: string, assetDirectory = 'publ
       file,
       line,
       label: alt?.value.trim() || `Image · ${path.basename(file)}:${line}`,
-      kind: /\.svg(?:[?#]|$)/i.test(src.value) ? 'svg' : 'raster',
+      kind:
+        /\.svg(?:[?#]|$)/i.test(src.value) || /^data:image\/svg\+xml;base64,/i.test(src.value)
+          ? 'svg'
+          : 'raster',
       current: src.value,
       version: hash(source),
       editable: true,

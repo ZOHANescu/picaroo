@@ -30,6 +30,7 @@ Picaroo is application-independent: it contains no assumptions about a particula
 - The standard `public/` directory or Angular's `src/assets/` directory.
 - Plain CSS stylesheets.
 - Local JPEG, PNG, WebP, AVIF, and SVG assets.
+- Base64 `data:image/...;base64,...` sources in supported image placements.
 
 Picaroo is currently consumed as a local package, commonly through a Git submodule. Publishing it to npm is outside the current scope.
 
@@ -281,6 +282,10 @@ If that readable name already belongs to different contents, Picaroo adds a shor
 SVG input opens a vector review dialog for intrinsic width, height, and a hex color. Solid fills and strokes are recolored in the live preview while `none`, transparency, gradients, patterns, and opacity are preserved. The result passes through SVGO while retaining `viewBox` and IDs. Customized variants use readable names such as `location-pin_32x32_ff5733.svg` even when hashed filenames are enabled. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
 
 Existing library SVGs can be reopened with **Edit SVG variant**. Saving a different size or color creates another asset and selects it in the library; the original remains unchanged. When the readable filename is already occupied by different SVG content, a short content hash is appended. SVGs without a `viewBox` are accepted for resizing only when they provide numeric width and height. Multi-color solid artwork is intentionally flattened to the selected color, while local gradients and transparent regions are retained.
+
+## Removing images
+
+Choose **Remove picture from project** in image details to clear the image source while retaining the HTML, JSX, or template element. A uniquely referenced local file is moved to `.picaroo/trash`; embedded Base64 data has no separate file to move. Undo restores both the source value and local file. Picaroo blocks file removal when its static index finds other references, preventing those placements from being broken.
 
 ## Responsive images and backgrounds
 

@@ -116,7 +116,7 @@ export function analyzeCss(source: string, file: string): SourceTarget[] {
     if (valueStart < 0) return
     for (const match of urls(decl.value)) {
       const current = match[2].trim()
-      if (!current || current.startsWith('data:') || current.includes('var(')) continue
+      if (!current || current.includes('var(')) continue
       const start = valueStart + match.index!
       const target = base(source, file, start, `Background · ${rule.selector}`)
       targets.push({
@@ -125,7 +125,10 @@ export function analyzeCss(source: string, file: string): SourceTarget[] {
         conditions,
         shared: true,
         current,
-        kind: /\.svg(?:[?#]|$)/i.test(current) ? 'svg' : 'raster',
+        kind:
+          /\.svg(?:[?#]|$)/i.test(current) || /^data:image\/svg\+xml;base64,/i.test(current)
+            ? 'svg'
+            : 'raster',
         presentation: 'background',
         start,
         end: start + match[0].length,
@@ -182,7 +185,7 @@ export function analyzeVisual(source: string, file: string): SourceTarget[] {
           parent.openingElement.name.type === 'JSXIdentifier' &&
           parent.openingElement.name.name === 'picture',
       )
-    if (srcset && (node.name.name === 'img' || pictureSource)) {
+    if (srcset?.value && (node.name.name === 'img' || pictureSource)) {
       const value = srcset.value
       // Static local/HTTP candidates only; commas inside URLs require manual mapping.
       const entries = responsiveEntries(value)
@@ -469,6 +472,29 @@ export function replaceVisual(
       // A <source> type applies to all candidates, so mixed-format lists must retain their format.
       output.overwrite(edit.mimeStart, edit.mimeEnd!, JSON.stringify(mime))
     }
+  }
+  return output.toString()
+}
+
+export function clearVisual(source: string, target: SourceTarget) {
+  const edit = target.visual!
+  const output = new MagicString(source)
+  if (edit.type === 'svg') {
+    output.overwrite(edit.contentStart!, edit.contentEnd!, '')
+  } else if (edit.type === 'css') {
+    output.overwrite(target.start, target.end, 'none')
+  } else if (edit.type === 'background') {
+    const value = new MagicString(edit.value!)
+    value.overwrite(edit.urlStart!, edit.urlEnd!, '')
+    output.overwrite(target.start, target.end, JSON.stringify(value.toString()))
+  } else {
+    const value = edit.value!
+    const before = value.lastIndexOf(',', edit.urlStart! - 1)
+    const after = value.indexOf(',', edit.urlEnd!)
+    const start = before < 0 ? 0 : before
+    const end = after < 0 ? value.length : before < 0 ? after + 1 : after
+    const next = value.slice(0, start) + value.slice(end)
+    output.overwrite(target.start, target.end, JSON.stringify(next.trim()))
   }
   return output.toString()
 }

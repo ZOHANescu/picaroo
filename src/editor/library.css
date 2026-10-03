@@ -77,6 +77,14 @@
 .secondary-action:hover:not(:disabled) {
   background: #e7f0db;
 }
+.secondary-action.remove-picture-action {
+  color: #9b342d;
+  border-color: #edc8c4;
+  background: #fff4f2;
+}
+.secondary-action.remove-picture-action:hover:not(:disabled) {
+  background: #fde6e2;
+}
 .library-heading .primary-action {
   flex-shrink: 0;
 }

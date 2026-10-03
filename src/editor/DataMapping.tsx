@@ -13,7 +13,10 @@ export function DataMapping({
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState('')
   const candidates = fields.filter(
-    (field) => !field.value || /\.(png|jpe?g|webp|avif|svg)(?:[?#].*)?$/i.test(field.value),
+    (field) =>
+      !field.value ||
+      /\.(png|jpe?g|webp|avif|svg)(?:[?#].*)?$/i.test(field.value) ||
+      /^data:image\/(?:png|jpe?g|webp|avif|svg\+xml);base64,/i.test(field.value),
   )
   const matches = candidates.filter((field) =>
     `${field.file} ${field.pointer}`.toLowerCase().includes(query.toLowerCase()),

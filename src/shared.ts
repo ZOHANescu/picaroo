@@ -63,7 +63,7 @@ export interface Change {
   outputBytes: number
   width?: number
   height?: number
-  operation?: 'replace' | 'reuse' | 'map' | 'archive'
+  operation?: 'replace' | 'reuse' | 'map' | 'archive' | 'remove'
 }
 
 export interface Snapshot {
@@ -107,6 +107,7 @@ export type EditorCommand =
   | { type: 'map'; id: string; version: string; field: DataField }
   | { type: 'settings'; profile: OptimizationProfile }
   | { type: 'archive'; assetId: string; version: string }
+  | { type: 'remove'; id: string; version: string }
   | { type: 'cancel'; requestId: string }
   | {
       type: 'reprocess'

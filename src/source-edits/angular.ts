@@ -7,6 +7,12 @@ import { hash } from '../hash'
 import type { SourceTarget } from './react'
 
 const imageUrl = /\.(?:svg|png|jpe?g|webp|avif)(?:[?#].*)?$/i
+const base64Image = /^data:image\/(?:png|jpe?g|webp|avif|svg\+xml);base64,/i
+const supportedImage = (value: string) => imageUrl.test(value) || base64Image.test(value)
+const imageKind = (value: string) =>
+  /\.svg(?:[?#]|$)/i.test(value) || /^data:image\/svg\+xml;base64,/i.test(value)
+    ? 'svg'
+    : 'raster'
 const attributePattern = /([:\[\]\w.-]+)\s*=\s*(["'])([\s\S]*?)\2/g
 
 interface Attribute {
@@ -76,13 +82,13 @@ export function analyzeAngular(
           .find((attribute) => component.labels.includes(attribute.name.toLowerCase()))
           ?.value.trim() ||
         `${element === 'img' ? 'Image' : `PrimeNG ${element.slice(2)}`} · ${path.basename(file)}:${lineAt(source, tagOffset)}`
-      if (current && imageUrl.test(current) && !current.includes('{{')) {
+      if (current && supportedImage(current) && !current.includes('{{')) {
         targets.push({
           id: hash(`${file}:angular-image:${ordinal++}`).slice(0, 20),
           file,
           line: lineAt(source, tagOffset),
           label,
-          kind: /\.svg(?:[?#]|$)/i.test(current) ? 'svg' : 'raster',
+          kind: imageKind(current),
           current,
           version: hash(source),
           editable: true,
@@ -109,7 +115,7 @@ export function analyzeAngular(
         componentSource.source,
       )
       for (const [index, item] of resolved.entries()) {
-        if (!imageUrl.test(item.literal.current)) continue
+        if (!supportedImage(item.literal.current)) continue
         const literalKey = `${componentSource.file}:${item.literal.start}:${item.literal.end}`
         if (sourceLiterals.has(literalKey)) continue
         sourceLiterals.add(literalKey)
@@ -120,7 +126,7 @@ export function analyzeAngular(
           label:
             item.label ??
             (resolved.length > 1 ? `${label} · Item ${index + 1}` : label),
-          kind: /\.svg(?:[?#]|$)/i.test(item.literal.current) ? 'svg' : 'raster',
+          kind: imageKind(item.literal.current),
           current: item.literal.current,
           version: hash(componentSource.source),
           editable: true,

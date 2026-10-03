@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { analyzeAngular, replaceAngularReference } from './angular'
 
+test('finds Base64 image sources', () => {
+  const source = '<img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline">'
+  const target = analyzeAngular(source, 'src/app.component.html')[0]
+  assert.equal(target.current, 'data:image/png;base64,iVBORw0KGgo=')
+  assert.equal(target.kind, 'raster')
+})
+
 test('finds and rewrites static Angular image sources', () => {
   const source = [
     '<img src="assets/hero.png" alt="Hero">',

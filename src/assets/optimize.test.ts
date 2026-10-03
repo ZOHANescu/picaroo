@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -153,4 +153,53 @@ test('imports customized SVGs with original name, dimensions, and normalized col
   assert.ok(
     variants.some((item) => /^location-pin_32x32_ff5533_[a-f0-9]{8}\.svg$/.test(item.name)),
   )
+})
+
+test('removes a local image and its source path, then restores both with Undo', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'picaroo-remove-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(path.join(root, 'src'), { recursive: true })
+  await mkdir(path.join(root, 'public', 'picaroo'), { recursive: true })
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'remove-test' }))
+  const sourceFile = path.join(root, 'src', 'App.tsx')
+  const assetFile = path.join(root, 'public', 'picaroo', 'photo.png')
+  const source = 'export const App = () => <img src="/picaroo/photo.png" alt="Photo" />'
+  const image = await sharp({
+    create: { width: 2, height: 2, channels: 4, background: '#ff5533' },
+  })
+    .png()
+    .toBuffer()
+  await writeFile(sourceFile, source)
+  await writeFile(assetFile, image)
+  const store = new ProjectStore(root, [])
+  await store.initialize()
+  const target = store.snapshot().targets[0]
+
+  const removed = await store.remove(target.id, target.version)
+  assert.match(await readFile(sourceFile, 'utf8'), /src=""/)
+  await assert.rejects(readFile(assetFile), { code: 'ENOENT' })
+  assert.equal(removed.history[0].operation, 'remove')
+
+  await store.undo(removed.history[0].id)
+  assert.equal(await readFile(sourceFile, 'utf8'), source)
+  assert.deepEqual(await readFile(assetFile), image)
+})
+
+test('clears embedded Base64 images without requiring a local file', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'picaroo-base64-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(path.join(root, 'src'), { recursive: true })
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'base64-test' }))
+  const sourceFile = path.join(root, 'src', 'App.tsx')
+  const source =
+    'export const App = () => <img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline" />'
+  await writeFile(sourceFile, source)
+  const store = new ProjectStore(root, [])
+  await store.initialize()
+  const target = store.snapshot().targets[0]
+
+  const removed = await store.remove(target.id, target.version)
+  assert.match(await readFile(sourceFile, 'utf8'), /src=""/)
+  await store.undo(removed.history[0].id)
+  assert.equal(await readFile(sourceFile, 'utf8'), source)
 })

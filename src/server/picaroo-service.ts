@@ -154,6 +154,12 @@ export class PicarooService {
           this.finishOperation(body.requestId, operation)
         }
       }
+      if (pathname === `${prefix}/api/remove` && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 1024)).toString())
+        if (typeof body.id !== 'string' || typeof body.version !== 'string')
+          throw new Error('Missing image target or version.')
+        return respond(res, 200, await this.store.remove(body.id, body.version))
+      }
       if (pathname === `${prefix}/api/thumbnail` && req.method === 'GET') {
         const query = new URL(req.url!, 'http://localhost').searchParams
         const thumbnail = await this.store.index.thumbnail(

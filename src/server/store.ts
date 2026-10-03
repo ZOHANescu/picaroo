@@ -2,7 +2,13 @@ import { readFile, writeFile, mkdir, rename, realpath, unlink, copyFile } from '
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { analyze, replaceReference, reuseReference, mapReference } from '../source-edits/react'
+import {
+  analyze,
+  clearReference,
+  replaceReference,
+  reuseReference,
+  mapReference,
+} from '../source-edits/react'
 import type { SourceTarget } from '../source-edits/react'
 import { optimizeAsset, validateProfile } from '../assets/optimize'
 import type {
@@ -15,7 +21,7 @@ import type {
   ImageSaveStage,
 } from '../shared'
 import { DEFAULT_PROFILE } from '../shared'
-import { analyzeCss, replaceVisual } from '../source-edits/visual'
+import { analyzeCss, clearVisual, replaceVisual } from '../source-edits/visual'
 import { ProjectIndex } from './project-index'
 import { fileURLToPath } from 'node:url'
 import { replaceJsonField } from '../source-edits/json'
@@ -422,7 +428,7 @@ export class ProjectStore {
   private assetUrl(current: string, file: string) {
     const asset = this.index.resolve(current, file)
     if (asset) return this.publicUrl(asset.file)
-    if (/^https?:/.test(current) || current.startsWith('/')) return current
+    if (/^(?:https?:|data:)/.test(current) || current.startsWith('/')) return current
     return '/' + path.posix.normalize(path.posix.join(path.posix.dirname(file), current))
   }
 
@@ -490,6 +496,82 @@ export class ProjectStore {
             entry.after.includes(asset.name)),
       )
     )
+  }
+
+  remove(id: string, version: string) {
+    return this.serialize(async () => {
+      const { target, source } = await this.resolveTarget(id, version)
+      if (!target.editable) throw new Error('This image source cannot be removed automatically.')
+      const asset = this.index.resolve(target.current, target.data?.file ?? target.file)
+      if (asset && asset.usages.length > 1)
+        throw new Error(
+          `This file has ${asset.usages.length} static references. Remove the other references before deleting it.`,
+        )
+      if (asset) await this.index.readAsset(asset.id, asset.version)
+      const document = target.data ? this.index.documents.get(target.data.file)! : undefined
+      const file = target.data?.file ?? target.file
+      const before = document?.source ?? source
+      const after =
+        document && target.data
+          ? replaceJsonField(document, target.data.pointer, '')
+          : target.visual
+            ? clearVisual(source, target)
+            : target.angular
+              ? replaceAngularReference(source, target, '')
+              : target.html
+                ? replaceHtmlReference(source, target, '')
+                : clearReference(source, target)
+      if (before === after && !asset) throw new Error('This image does not have a removable source.')
+      if (!document) {
+        if (target.visual?.type === 'css') analyzeCss(after, file)
+        else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+        else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
+        else analyze(after, target.file, this.components, this.index.documents)
+      }
+      const changeId = randomUUID()
+      const trashFile = asset
+        ? `.picaroo/trash/${changeId}${path.extname(asset.file).toLowerCase()}`
+        : undefined
+      const entry: JournalEntry = {
+        id: changeId,
+        label: `Removed ${target.label}`,
+        file,
+        asset: asset?.file ?? '',
+        kind: target.kind,
+        createdAt: new Date().toISOString(),
+        inputBytes: asset?.bytes ?? Buffer.byteLength(target.current),
+        outputBytes: 0,
+        before,
+        after,
+        operation: 'remove',
+        trashFile,
+        assetVersion: asset?.version,
+      }
+      const history = [entry, ...this.history].slice(0, 50)
+      if (trashFile) await mkdir(path.dirname(await this.safePath(trashFile)), { recursive: true })
+      await this.atomicWrite('.picaroo/history.json', JSON.stringify(history, null, 2))
+      let sourceWritten = false
+      let assetMoved = false
+      try {
+        await this.atomicWrite(file, after)
+        sourceWritten = true
+        if (asset && trashFile) {
+          await rename(await this.safePath(asset.file), await this.safePath(trashFile))
+          assetMoved = true
+        }
+      } catch (error) {
+        if (assetMoved && asset && trashFile)
+          await rename(await this.safePath(trashFile), await this.safePath(asset.file)).catch(
+            () => {},
+          )
+        if (sourceWritten) await this.atomicWrite(file, before).catch(() => {})
+        await this.atomicWrite('.picaroo/history.json', JSON.stringify(this.history, null, 2))
+        throw error
+      }
+      this.history = history
+      await this.reindex()
+      return this.snapshot()
+    })
   }
 
   archive(assetId: string, version: string) {
@@ -778,7 +860,36 @@ export class ProjectStore {
           'This file was edited outside Picaroo. Undo is blocked to preserve your changes.',
         )
       }
+      let removedBackup: string | undefined
+      if (entry.operation === 'remove' && entry.trashFile) {
+        const destination = await this.safePath(entry.asset)
+        const backup = await this.safePath(entry.trashFile)
+        const readIfPresent = async (candidate: string) => {
+          try {
+            return await readFile(candidate)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+            throw error
+          }
+        }
+        const archived = await readIfPresent(backup)
+        const restored = await readIfPresent(destination)
+        if (archived && hash(archived) !== entry.assetVersion)
+          throw new Error('The removed image changed in Picaroo trash. Undo is blocked.')
+        if (restored) {
+          if (hash(restored) !== entry.assetVersion)
+            throw new Error('A different file now exists at the removed image path. Undo is blocked.')
+        } else {
+          if (!archived) throw new Error('The removed image is missing from Picaroo trash.')
+          await mkdir(path.dirname(destination), { recursive: true })
+          await copyFile(backup, destination, constants.COPYFILE_EXCL)
+          if (hash(await readFile(destination)) !== entry.assetVersion)
+            throw new Error('The image changed while it was being restored. Undo is blocked.')
+        }
+        if (archived) removedBackup = backup
+      }
       if (current !== entry.before) await this.atomicWrite(entry.file, entry.before)
+      if (removedBackup) await unlink(removedBackup)
       const remaining = this.history.slice(1)
       await this.atomicWrite('.picaroo/history.json', JSON.stringify(remaining, null, 2))
       this.history = remaining
