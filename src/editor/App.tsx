@@ -136,6 +136,7 @@ export function App() {
       } else if (message.type === 'mutation-result') {
         if (message.requestId !== saveRequest.current) return
         saveRequest.current = null
+        setBusy(false)
         setSaveProgress(null)
         if (message.cancelled)
           setSaveError('Image processing was cancelled. No source changes were applied.')

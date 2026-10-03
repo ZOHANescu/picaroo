@@ -1,8 +1,8 @@
 import type { BridgeEvent, EditorCommand, Snapshot, VisibleTarget, ImageOptions } from './shared'
 
-declare const PICAROO_CONFIG: { token: string; editorOrigin: string }
+declare const PICAROO_CONFIG: { token: string; editorOrigin: string; maxUploadMb: number }
 const channel = 'picaroo:1'
-const maxUploadMb = 30
+const maxUploadMb = PICAROO_CONFIG.maxUploadMb
 const maxUpload = maxUploadMb * 1024 * 1024
 
 // No React runtime in the target app. The overlay is isolated from application CSS.

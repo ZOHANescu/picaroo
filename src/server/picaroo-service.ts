@@ -76,7 +76,7 @@ export class PicarooService {
     if (pathname === `${prefix}/overlay.js` && req.method === 'GET') {
       res.setHeader('Content-Type', 'text/javascript')
       res.end(
-        `const PICAROO_CONFIG = ${JSON.stringify({ token: this.token, editorOrigin: this.editorOrigin })};\n${this.overlay}`,
+        `const PICAROO_CONFIG = ${JSON.stringify({ token: this.token, editorOrigin: this.editorOrigin, maxUploadMb: MAX_UPLOAD_MB })};\n${this.overlay}`,
       )
       return true
     }
