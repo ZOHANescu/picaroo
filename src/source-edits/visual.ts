@@ -20,6 +20,10 @@ export interface VisualEdit {
   contentEnd?: number
   viewBoxStart?: number
   viewBoxEnd?: number
+  widthAttributeStart?: number
+  widthAttributeEnd?: number
+  heightAttributeStart?: number
+  heightAttributeEnd?: number
   mimeStart?: number
   mimeEnd?: number
   format?: 'webp' | 'avif' | 'jpeg' | 'png'
@@ -303,6 +307,8 @@ export function analyzeVisual(source: string, file: string): SourceTarget[] {
       })
     if (dynamic) return // Components such as Icon expose a replaceable SVG source at their call sites.
     const viewBox = attr('viewBox')?.value
+    const width = attr('width')
+    const height = attr('height')
     targets.push({
       ...create(node.start!, `SVG · ${literal(attr('aria-label'))?.value ?? path.basename(file)}`),
       kind: 'svg',
@@ -315,6 +321,10 @@ export function analyzeVisual(source: string, file: string): SourceTarget[] {
         contentEnd: element.closingElement.start!,
         viewBoxStart: viewBox?.start ?? undefined,
         viewBoxEnd: viewBox?.end ?? undefined,
+        widthAttributeStart: width?.start ?? undefined,
+        widthAttributeEnd: width?.end ?? undefined,
+        heightAttributeStart: height?.start ?? undefined,
+        heightAttributeEnd: height?.end ?? undefined,
       },
     })
   })
@@ -408,6 +418,7 @@ export function replaceVisual(
   asset: string,
   input: Buffer,
   width?: number,
+  height?: number,
   publicUrl?: string,
 ) {
   const edit = target.visual!
@@ -420,6 +431,14 @@ export function replaceVisual(
     if (edit.viewBoxStart !== undefined)
       output.overwrite(edit.viewBoxStart, edit.viewBoxEnd!, JSON.stringify(svg.box))
     else output.appendLeft(target.insertion, ` viewBox=${JSON.stringify(svg.box)} `)
+    if (width && height) {
+      if (edit.widthAttributeStart !== undefined)
+        output.overwrite(edit.widthAttributeStart, edit.widthAttributeEnd!, `width={${width}}`)
+      else output.appendLeft(target.insertion, ` width={${width}}`)
+      if (edit.heightAttributeStart !== undefined)
+        output.overwrite(edit.heightAttributeStart, edit.heightAttributeEnd!, `height={${height}}`)
+      else output.appendLeft(target.insertion, ` height={${height}}`)
+    }
   } else if (edit.type === 'css')
     output.overwrite(target.start, target.end, `url(${JSON.stringify(url)})`)
   else {

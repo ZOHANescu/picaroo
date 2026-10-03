@@ -170,7 +170,7 @@ Keep both development servers running while editing.
 2. Keep **Edit images** enabled.
 3. Select a highlighted image in the preview or the **Page images** list.
 4. Drop one replacement file or use the file chooser.
-5. Review raster crop and optimization settings. Output width and height begin at the uploaded image's resolution and can be edited before selecting **Save image**. SVG replacements save directly.
+5. Review raster crop and optimization settings or SVG dimensions, then save the image.
 6. Follow the upload, preparation, optimization, save, and preview-refresh steps. Select **Cancel process** to stop an active raster save safely.
 7. Let Vite refresh the application preview.
 8. Use **Change history** to undo the newest change when needed.
@@ -277,7 +277,7 @@ homepage-hero_2000x1000.webp
 
 If that readable name already belongs to different contents, Picaroo adds a short hash suffix instead of overwriting it. The setting affects future replacements and library imports. Existing assets are not renamed.
 
-SVG input passes through SVGO and retains `viewBox` and IDs. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
+SVG input opens a vector review dialog for intrinsic width and height, then passes through SVGO while retaining `viewBox` and IDs. Customized SVG variants use readable names such as `location-pin_32x32.svg` even when hashed filenames are enabled; the selected color suffix will be added by the color-editing milestone. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
 
 ## Responsive images and backgrounds
 

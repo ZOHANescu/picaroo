@@ -73,12 +73,13 @@ export async function optimizeAsset(
   )
     throw new Error('Invalid crop or focal point.')
   const hasExactSize = outputWidth !== undefined || outputHeight !== undefined
+  const minimumOutputDimension = kind === 'svg' ? 1 : 16
   if (
     hasExactSize &&
     (!Number.isInteger(outputWidth) ||
       !Number.isInteger(outputHeight) ||
-      outputWidth! < 16 ||
-      outputHeight! < 16 ||
+      outputWidth! < minimumOutputDimension ||
+      outputHeight! < minimumOutputDimension ||
       outputWidth! > MAX_IMAGE_DIMENSION ||
       outputHeight! > MAX_IMAGE_DIMENSION ||
       outputWidth! * outputHeight! > MAX_IMAGE_PIXELS)
@@ -146,14 +147,45 @@ export async function optimizeAsset(
       throw new Error(
         'SVG document types, entities, and processing instructions are not supported.',
       )
+    const sizeSvg = {
+      name: 'picaroo-svg-size',
+      fn: () => ({
+        element: {
+          enter(node: { name: string; attributes: Record<string, string> }) {
+            if (node.name.toLowerCase() !== 'svg' || !hasExactSize) return
+            if (!node.attributes.viewBox) {
+              const numeric = (value?: string) => {
+                const match = value?.match(/^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i)
+                return match ? Number(match[1]) : undefined
+              }
+              const sourceWidth = numeric(node.attributes.width)
+              const sourceHeight = numeric(node.attributes.height)
+              if (!sourceWidth || !sourceHeight)
+                throw new Error(
+                  'This SVG needs a viewBox or numeric width and height before it can be resized.',
+                )
+              node.attributes.viewBox = `0 0 ${sourceWidth} ${sourceHeight}`
+            }
+            node.attributes.width = String(outputWidth)
+            node.attributes.height = String(outputHeight)
+          },
+        },
+      }),
+    }
     const result = optimize(text, {
       multipass: false,
       plugins: [
         staticOnly,
         { name: 'preset-default', params: { overrides: { cleanupIds: false } } },
+        sizeSvg,
       ],
     })
-    return { data: Buffer.from(result.data), extension: 'svg', width: undefined, height: undefined }
+    return {
+      data: Buffer.from(result.data),
+      extension: 'svg',
+      width: hasExactSize ? outputWidth : undefined,
+      height: hasExactSize ? outputHeight : undefined,
+    }
   }
   // Decode by content; extensions and client MIME types are never trusted.
   const decoder = sharp(input, {

@@ -164,17 +164,44 @@ export class PicarooService {
         res.end(thumbnail)
         return true
       }
-      if (pathname === `${prefix}/api/import` && req.method === 'POST')
-        return respond(
-          res,
-          200,
-          await this.store.importAsset(
-            await readBody(req, MAX_UPLOAD),
-            typeof req.headers['x-picaroo-name'] === 'string'
-              ? decodeURIComponent(req.headers['x-picaroo-name'])
-              : undefined,
-          ),
-        )
+      if (pathname === `${prefix}/api/import` && req.method === 'POST') {
+        const rawOptions = req.headers['x-picaroo-options']
+        if (rawOptions && (typeof rawOptions !== 'string' || rawOptions.length > 4096))
+          throw new Error('Invalid image options.')
+        const rawName = req.headers['x-picaroo-name']
+        if (rawName && (typeof rawName !== 'string' || rawName.length > 1024))
+          throw new Error('Invalid image filename.')
+        const requestId = req.headers['x-picaroo-request']
+        const operation = this.beginOperation(requestId, 'uploading', 3)
+        try {
+          return respond(
+            res,
+            200,
+            await this.store.importAsset(
+              await readBody(
+                req,
+                MAX_UPLOAD,
+                operation?.controller.signal,
+                (percent) => {
+                  if (operation) operation.progress = { stage: 'uploading', percent }
+                },
+              ),
+              typeof rawName === 'string' ? decodeURIComponent(rawName) : undefined,
+              typeof rawOptions === 'string' ? JSON.parse(rawOptions) : undefined,
+              operation
+                ? {
+                    signal: operation.controller.signal,
+                    onProgress: (stage, percent) => {
+                      operation.progress = { stage, percent }
+                    },
+                  }
+                : undefined,
+            ),
+          )
+        } finally {
+          this.finishOperation(requestId, operation)
+        }
+      }
       if (
         (pathname === `${prefix}/api/reuse` || pathname === `${prefix}/api/map`) &&
         req.method === 'POST'

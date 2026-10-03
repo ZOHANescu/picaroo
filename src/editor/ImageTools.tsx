@@ -173,6 +173,283 @@ export function OptimizationSettings({
   )
 }
 
+function svgLength(value: string | null) {
+  const match = value?.match(/^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i)
+  return match ? Number(match[1]) : undefined
+}
+
+function safeSvgPreview(source: string) {
+  const document = new DOMParser().parseFromString(source, 'image/svg+xml')
+  const root = document.documentElement
+  if (root.localName.toLowerCase() !== 'svg' || document.querySelector('parsererror'))
+    throw new Error('Choose a valid SVG file.')
+  const forbidden = new Set([
+    'script',
+    'foreignobject',
+    'iframe',
+    'object',
+    'embed',
+    'style',
+    'animate',
+    'animatetransform',
+    'animatemotion',
+    'set',
+    'image',
+    'feimage',
+  ])
+  for (const element of document.querySelectorAll('*')) {
+    if (forbidden.has(element.localName.toLowerCase()))
+      throw new Error('This SVG contains content that cannot be previewed safely.')
+    for (const attribute of [...element.attributes]) {
+      const name = attribute.name.toLowerCase()
+      const value = attribute.value
+      if (
+        name.startsWith('on') ||
+        name === 'xml:base' ||
+        name === 'style' ||
+        ((name === 'href' || name.endsWith(':href')) && !/^#[\w.-]+$/.test(value)) ||
+        (/url\s*\(/i.test(value) && !/^url\(\s*['"]?#[\w.-]+['"]?\s*\)$/.test(value)) ||
+        /javascript:|data:|\\|\/\*/i.test(value)
+      )
+        throw new Error('This SVG contains active content or external resources.')
+    }
+  }
+  const viewBox = root
+    .getAttribute('viewBox')
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number)
+  const viewBoxWidth = viewBox?.length === 4 && viewBox.every(Number.isFinite) ? viewBox[2] : 0
+  const viewBoxHeight = viewBox?.length === 4 && viewBox.every(Number.isFinite) ? viewBox[3] : 0
+  let width = svgLength(root.getAttribute('width'))
+  let height = svgLength(root.getAttribute('height'))
+  if ((!width || !height) && viewBoxWidth > 0 && viewBoxHeight > 0) {
+    if (width) height = width * (viewBoxHeight / viewBoxWidth)
+    else if (height) width = height * (viewBoxWidth / viewBoxHeight)
+    else {
+      width = viewBoxWidth
+      height = viewBoxHeight
+    }
+  }
+  if (!width || !height)
+    throw new Error('This SVG needs a viewBox or numeric width and height before it can be resized.')
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  }
+}
+
+export function SvgReview({
+  file,
+  label,
+  busy,
+  progress,
+  saveError,
+  connected,
+  onCancel,
+  onApply,
+}: {
+  file: File
+  label: string
+  busy: boolean
+  progress: ImageSaveProgress | null
+  saveError: string
+  connected: boolean
+  onCancel: () => void
+  onApply: (options: ImageOptions) => void
+}) {
+  const [preview, setPreview] = useState<string>()
+  const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 })
+  const [outputSize, setOutputSize] = useState({ width: 0, height: 0 })
+  const [locked, setLocked] = useState(true)
+  const [error, setError] = useState('')
+  const dialog = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const previous = document.activeElement
+    dialog.current?.focus()
+    return () => {
+      if (previous instanceof HTMLElement) previous.focus()
+    }
+  }, [])
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | undefined
+    setPreview(undefined)
+    setError('')
+    void file
+      .text()
+      .then((source) => {
+        const size = safeSvgPreview(source)
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(file)
+        setSourceSize(size)
+        setOutputSize(size)
+        setPreview(objectUrl)
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Choose a valid SVG file.')
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [file])
+  const aspect = sourceSize.width && sourceSize.height ? sourceSize.width / sourceSize.height : 1
+  const outputValid =
+    Number.isInteger(outputSize.width) &&
+    Number.isInteger(outputSize.height) &&
+    outputSize.width >= 1 &&
+    outputSize.height >= 1 &&
+    outputSize.width <= MAX_IMAGE_DIMENSION &&
+    outputSize.height <= MAX_IMAGE_DIMENSION &&
+    outputSize.width * outputSize.height <= MAX_IMAGE_PIXELS
+  const stem =
+    file.name
+      .replace(/\.svg$/i, '')
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase()
+      .replace(/_\d+x\d+(?:_[a-f0-9]{6})?(?:_[a-f0-9]{8})?$/i, '') || 'image'
+  return (
+    <div className="image-review-backdrop">
+      <section
+        className="image-review svg-review"
+        ref={dialog}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="svg-review-title"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !busy) onCancel()
+        }}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!busy && preview && connected && outputValid)
+              onApply({ outputWidth: outputSize.width, outputHeight: outputSize.height })
+          }}
+        >
+          <header>
+            <div>
+              <h2 id="svg-review-title">Prepare your SVG</h2>
+              <p>{label}</p>
+            </div>
+            <button
+              type="button"
+              aria-label={busy ? 'Cancel SVG processing' : 'Cancel SVG editing'}
+              onClick={onCancel}
+              disabled={progress?.stage === 'cancelling'}
+            >
+              ×
+            </button>
+          </header>
+          {saveError && <p role="alert">{saveError}</p>}
+          <fieldset className="image-review-grid" disabled={busy}>
+            <div>
+              <div className="svg-preview">
+                {preview && <img src={preview} alt="SVG preview" />}
+                {!preview && !error && <span>Reading SVG…</span>}
+              </div>
+              {error && <p role="alert">{error}</p>}
+              {preview && (
+                <p className="crop-help">
+                  Vector scaling is preserved. CSS in the application can still override these
+                  intrinsic dimensions.
+                </p>
+              )}
+            </div>
+            <div className="output-settings">
+              <div className="svg-size-heading">
+                <strong>Intrinsic size</strong>
+                <span>
+                  Original: {sourceSize.width || '—'} × {sourceSize.height || '—'} px
+                </span>
+              </div>
+              <div className="output-dimensions">
+                <label>
+                  Width
+                  <span className="dimension-input">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max={MAX_IMAGE_DIMENSION}
+                      value={outputSize.width || ''}
+                      onChange={(event) => {
+                        const width = Number(event.target.value)
+                        setOutputSize({
+                          width,
+                          height: locked && width ? Math.max(1, Math.round(width / aspect)) : outputSize.height,
+                        })
+                      }}
+                    />
+                    <span>px</span>
+                  </span>
+                </label>
+                <label>
+                  Height
+                  <span className="dimension-input">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max={MAX_IMAGE_DIMENSION}
+                      value={outputSize.height || ''}
+                      onChange={(event) => {
+                        const height = Number(event.target.value)
+                        setOutputSize({
+                          width: locked && height ? Math.max(1, Math.round(height * aspect)) : outputSize.width,
+                          height,
+                        })
+                      }}
+                    />
+                    <span>px</span>
+                  </span>
+                </label>
+                <label className="aspect-lock">
+                  <input
+                    type="checkbox"
+                    checked={locked}
+                    onChange={(event) => setLocked(event.target.checked)}
+                  />
+                  Lock original aspect ratio
+                </label>
+                <p className={outputValid ? '' : 'dimension-error'}>
+                  Output: {outputSize.width || '—'} × {outputSize.height || '—'} px
+                  {!outputValid && ` · Keep the output at or below ${MAX_IMAGE_PIXELS / 1_000_000} MP.`}
+                </p>
+              </div>
+              {outputValid && (
+                <div className="svg-filename-preview">
+                  <span>Generated filename</span>
+                  <code>{stem}_{outputSize.width}x{outputSize.height}.svg</code>
+                  <small>The selected hex color will be added here by the color editor.</small>
+                </div>
+              )}
+            </div>
+          </fieldset>
+          {progress && <SaveProgress progress={progress} />}
+          <footer>
+            <button
+              type="button"
+              className="secondary-action cancel-action"
+              onClick={onCancel}
+              disabled={progress?.stage === 'cancelling'}
+            >
+              {busy ? 'Stop saving' : 'Cancel'}
+            </button>
+            <button className="primary-action" disabled={busy || !preview || !outputValid || !connected}>
+              {busy ? 'Saving…' : 'Save SVG'}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 export function ImageReview({
   file,
   preview,

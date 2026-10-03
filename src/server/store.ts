@@ -335,7 +335,15 @@ export class ProjectStore {
       document && target.data
         ? replaceJsonField(document, target.data.pointer, publicUrl)
         : target.visual
-          ? replaceVisual(source, target, asset, optimized.data, optimized.width, publicUrl)
+          ? replaceVisual(
+              source,
+              target,
+              asset,
+              optimized.data,
+              optimized.width,
+              optimized.height,
+              publicUrl,
+            )
           : target.angular
             ? replaceAngularReference(source, target, publicUrl)
             : target.html
@@ -427,10 +435,18 @@ export class ProjectStore {
   private generatedAssetPath(
     directory: string,
     originalName: string,
-    optimized: { data: Buffer; extension: string; width?: number; height?: number },
+    optimized: {
+      data: Buffer
+      extension: string
+      width?: number
+      height?: number
+      color?: string
+    },
   ) {
     const version = hash(optimized.data)
-    if (this.settings.hashFilenames !== false)
+    const customizedSvg =
+      optimized.extension === 'svg' && !!optimized.width && !!optimized.height
+    if (this.settings.hashFilenames !== false && !customizedSvg)
       return `${directory}/${version.slice(0, 24)}.${optimized.extension}`
     const stem =
       path
@@ -439,16 +455,26 @@ export class ProjectStore {
         .replace(/[^a-zA-Z0-9_-]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .toLowerCase()
-        .replace(/_\d+x\d+(?:_[a-f0-9]{8})?$/i, '')
+        .replace(/_\d+x\d+(?:_[a-f0-9]{6})?(?:_[a-f0-9]{8})?$/i, '')
         .slice(0, 60) || 'image'
     const dimensions =
       optimized.width && optimized.height ? `_${optimized.width}x${optimized.height}` : ''
-    const readable = `${directory}/${stem}${dimensions}.${optimized.extension}`
+    const rawColor = optimized.color?.replace(/^#/, '').toLowerCase()
+    const normalizedColor = rawColor?.match(/^[a-f0-9]{3}$/)
+      ? rawColor
+          .split('')
+          .map((value) => value + value)
+          .join('')
+      : rawColor?.match(/^[a-f0-9]{6}$/)
+        ? rawColor
+        : ''
+    const color = normalizedColor ? `_${normalizedColor}` : ''
+    const readable = `${directory}/${stem}${dimensions}${color}.${optimized.extension}`
     const existing = this.index.assets.find(
       (asset) => asset.file.toLowerCase() === readable.toLowerCase(),
     )
     if (!existing || existing.version === version) return readable
-    return `${directory}/${stem}${dimensions}_${version.slice(0, 8)}.${optimized.extension}`
+    return `${directory}/${stem}${dimensions}${color}_${version.slice(0, 8)}.${optimized.extension}`
   }
 
   private canArchive(asset: LibraryAsset) {
@@ -508,19 +534,37 @@ export class ProjectStore {
     })
   }
 
-  importAsset(input: Buffer, name = 'image') {
+  importAsset(
+    input: Buffer,
+    name = 'image',
+    options: ImageOptions = {},
+    control: MutationControl = {},
+  ) {
     return this.serialize(async () => {
+      throwIfCancelled(control.signal)
+      control.onProgress?.('preparing', 34)
       await this.reindex()
       const kind = /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(
         input.toString('utf8').replace(/^\uFEFF/, ''),
       )
         ? 'svg'
         : 'raster'
-      const optimized = await optimizeAsset(input, kind, { profile: this.settings })
+      const optimized = await optimizeAsset(
+        input,
+        kind,
+        { ...options, profile: this.settings },
+        {
+          signal: control.signal,
+          onProgress: (percent) => control.onProgress?.('optimizing', percent),
+        },
+      )
+      throwIfCancelled(control.signal)
       const version = hash(optimized.data)
       if (this.index.assets.some((asset) => asset.version === version)) return this.snapshot()
       const file = this.generatedAssetPath(this.assetDirectory, name, optimized)
+      control.onProgress?.('saving', 76)
       await this.saveAsset(file, optimized.data)
+      control.onProgress?.('saving', 86)
       await this.reindex()
       return this.snapshot()
     })

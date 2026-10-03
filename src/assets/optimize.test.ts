@@ -41,3 +41,34 @@ test('stops before processing when the request is cancelled', async () => {
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   )
 })
+
+test('sets exact SVG dimensions while preserving its viewBox', async () => {
+  const input = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 12"><path fill="#123456" d="M0 0h24v12H0z"/></svg>',
+  )
+
+  const result = await optimizeAsset(input, 'svg', {
+    outputWidth: 96,
+    outputHeight: 48,
+  })
+  const output = result.data.toString('utf8')
+
+  assert.equal(result.width, 96)
+  assert.equal(result.height, 48)
+  assert.match(output, /viewBox="0 0 24 12"/)
+  assert.match(output, /width="96"/)
+  assert.match(output, /height="48"/)
+})
+
+test('creates an SVG viewBox from numeric source dimensions before resizing', async () => {
+  const input = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><path d="M0 0h20v10H0z"/></svg>',
+  )
+
+  const result = await optimizeAsset(input, 'svg', {
+    outputWidth: 40,
+    outputHeight: 20,
+  })
+
+  assert.match(result.data.toString('utf8'), /viewBox="0 0 20 10"/)
+})

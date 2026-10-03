@@ -96,7 +96,12 @@ export type EditorCommand =
   | { type: 'undo'; id: string }
   | { type: 'thumbnail'; assetId: string; version: string }
   | { type: 'reuse'; id: string; version: string; assetId: string; assetVersion: string }
-  | { type: 'import'; file: File }
+  | {
+      type: 'import'
+      file: File
+      options?: ImageOptions
+      requestId?: string
+    }
   | { type: 'map'; id: string; version: string; field: DataField }
   | { type: 'settings'; profile: OptimizationProfile }
   | { type: 'archive'; assetId: string; version: string }

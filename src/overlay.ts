@@ -439,9 +439,12 @@ if (window.parent !== window) {
             headers: {
               'Content-Type': 'application/octet-stream',
               'x-picaroo-name': encodeURIComponent(message.file.name),
+              'x-picaroo-options': JSON.stringify(message.options ?? {}),
+              ...(message.requestId ? { 'x-picaroo-request': message.requestId } : {}),
             },
           }),
         'Image added to your reusable library.',
+        message.requestId,
       )
     } else if (['reuse', 'map', 'settings', 'archive', 'reprocess'].includes(message.type)) {
       void mutate(
