@@ -40,6 +40,7 @@ export interface LibraryAsset {
   bytes: number
   width?: number
   height?: number
+  color?: string
   usages: AssetUsage[]
   canArchive?: boolean
 }
@@ -142,6 +143,7 @@ export interface ImageOptions {
   focusY?: number
   outputWidth?: number
   outputHeight?: number
+  color?: string
 }
 
 export type ImageSaveStage =

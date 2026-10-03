@@ -59,6 +59,17 @@ export async function optimizeAsset(
   throwIfCancelled(control.signal)
   const profile = validateProfile(options.profile ?? DEFAULT_PROFILE)
   const { ratio = 0, focusX = 0.5, focusY = 0.5, outputWidth, outputHeight } = options
+  const rawColor = options.color?.trim().replace(/^#/, '').toLowerCase()
+  const svgColor = rawColor?.match(/^[a-f0-9]{3}$/)
+    ? rawColor
+        .split('')
+        .map((value) => value + value)
+        .join('')
+    : rawColor?.match(/^[a-f0-9]{6}$/)
+      ? rawColor
+      : undefined
+  if (options.color !== undefined && (!svgColor || kind !== 'svg'))
+    throw new Error('Choose a valid three- or six-digit hex color for an SVG.')
   if (
     !Number.isFinite(ratio) ||
     ratio < 0 ||
@@ -172,12 +183,35 @@ export async function optimizeAsset(
         },
       }),
     }
+    const recolorSvg = {
+      name: 'picaroo-svg-color',
+      fn: () => ({
+        element: {
+          enter(node: { name: string; attributes: Record<string, string> }) {
+            if (!svgColor) return
+            const color = `#${svgColor}`
+            const recolorable = (value: string) =>
+              !/^(?:none|transparent|inherit|context-fill|context-stroke)$/i.test(value.trim()) &&
+              !/^url\s*\(/i.test(value.trim())
+            if (node.name.toLowerCase() === 'svg') {
+              node.attributes.color = color
+              if (!node.attributes.fill) node.attributes.fill = color
+            }
+            for (const attribute of ['fill', 'stroke', 'color'])
+              if (node.attributes[attribute] && recolorable(node.attributes[attribute]))
+                node.attributes[attribute] = color
+          },
+        },
+      }),
+    }
     const result = optimize(text, {
       multipass: false,
       plugins: [
         staticOnly,
         { name: 'preset-default', params: { overrides: { cleanupIds: false } } },
+        recolorSvg,
         sizeSvg,
+        { ...staticOnly, name: 'picaroo-static-svg-output' },
       ],
     })
     return {
@@ -185,6 +219,7 @@ export async function optimizeAsset(
       extension: 'svg',
       width: hasExactSize ? outputWidth : undefined,
       height: hasExactSize ? outputHeight : undefined,
+      color: svgColor,
     }
   }
   // Decode by content; extensions and client MIME types are never trusted.

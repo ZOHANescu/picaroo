@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { ImageOptions, ImageSaveProgress, OptimizationProfile } from '../shared'
 import { MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, cropBounds } from '../shared'
 import './image-tools.css'
@@ -178,6 +179,19 @@ function svgLength(value: string | null) {
   return match ? Number(match[1]) : undefined
 }
 
+function normalizedHex(value: string) {
+  const raw = value.trim().replace(/^#/, '').toLowerCase()
+  if (/^[a-f0-9]{3}$/.test(raw)) return raw.split('').map((part) => part + part).join('')
+  return /^[a-f0-9]{6}$/.test(raw) ? raw : undefined
+}
+
+function recolorablePaint(value: string) {
+  return (
+    !/^(?:none|transparent|inherit|context-fill|context-stroke)$/i.test(value.trim()) &&
+    !/^url\s*\(/i.test(value.trim())
+  )
+}
+
 function safeSvgPreview(source: string) {
   const document = new DOMParser().parseFromString(source, 'image/svg+xml')
   const root = document.documentElement
@@ -197,6 +211,7 @@ function safeSvgPreview(source: string) {
     'image',
     'feimage',
   ])
+  const colors = new Set<string>()
   for (const element of document.querySelectorAll('*')) {
     if (forbidden.has(element.localName.toLowerCase()))
       throw new Error('This SVG contains content that cannot be previewed safely.')
@@ -212,6 +227,10 @@ function safeSvgPreview(source: string) {
         /javascript:|data:|\\|\/\*/i.test(value)
       )
         throw new Error('This SVG contains active content or external resources.')
+      if (['fill', 'stroke', 'color'].includes(name)) {
+        const color = normalizedHex(value)
+        if (color) colors.add(`#${color}`)
+      }
     }
   }
   const viewBox = root
@@ -236,8 +255,25 @@ function safeSvgPreview(source: string) {
   return {
     width: Math.max(1, Math.round(width)),
     height: Math.max(1, Math.round(height)),
+    colors: [...colors],
   }
 }
+
+function recoloredSvg(source: string, hex: string) {
+  const document = new DOMParser().parseFromString(source, 'image/svg+xml')
+  const root = document.documentElement
+  const color = `#${hex}`
+  root.setAttribute('color', color)
+  if (!root.hasAttribute('fill')) root.setAttribute('fill', color)
+  for (const element of document.querySelectorAll('*'))
+    for (const name of ['fill', 'stroke', 'color']) {
+      const value = element.getAttribute(name)
+      if (value && recolorablePaint(value)) element.setAttribute(name, color)
+    }
+  return new XMLSerializer().serializeToString(document)
+}
+
+const recentSvgColorsKey = 'picaroo:recent-svg-colors'
 
 export function SvgReview({
   file,
@@ -259,8 +295,21 @@ export function SvgReview({
   onApply: (options: ImageOptions) => void
 }) {
   const [preview, setPreview] = useState<string>()
+  const [source, setSource] = useState('')
   const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 })
   const [outputSize, setOutputSize] = useState({ width: 0, height: 0 })
+  const [colorInput, setColorInput] = useState('#000000')
+  const [detectedColors, setDetectedColors] = useState<string[]>([])
+  const [recentColors, setRecentColors] = useState<string[]>(() => {
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem(recentSvgColorsKey) ?? '[]')
+      return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string' && !!normalizedHex(item)).slice(0, 8)
+        : []
+    } catch {
+      return []
+    }
+  })
   const [locked, setLocked] = useState(true)
   const [error, setError] = useState('')
   const dialog = useRef<HTMLElement>(null)
@@ -273,27 +322,38 @@ export function SvgReview({
   }, [])
   useEffect(() => {
     let cancelled = false
-    let objectUrl: string | undefined
-    setPreview(undefined)
+    setSource('')
     setError('')
     void file
       .text()
       .then((source) => {
         const size = safeSvgPreview(source)
         if (cancelled) return
-        objectUrl = URL.createObjectURL(file)
         setSourceSize(size)
         setOutputSize(size)
-        setPreview(objectUrl)
+        setDetectedColors(size.colors)
+        setColorInput(size.colors[0] ?? recentColors[0] ?? '#000000')
+        setSource(source)
       })
       .catch((reason: unknown) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : 'Choose a valid SVG file.')
       })
     return () => {
       cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [file])
+  const color = normalizedHex(colorInput)
+  useEffect(() => {
+    if (!source) {
+      setPreview(undefined)
+      return
+    }
+    const objectUrl = URL.createObjectURL(
+      new Blob([color ? recoloredSvg(source, color) : source], { type: 'image/svg+xml' }),
+    )
+    setPreview(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [source, color])
   const aspect = sourceSize.width && sourceSize.height ? sourceSize.width / sourceSize.height : 1
   const outputValid =
     Number.isInteger(outputSize.width) &&
@@ -303,6 +363,7 @@ export function SvgReview({
     outputSize.width <= MAX_IMAGE_DIMENSION &&
     outputSize.height <= MAX_IMAGE_DIMENSION &&
     outputSize.width * outputSize.height <= MAX_IMAGE_PIXELS
+  const palette = [...new Set([...detectedColors, ...recentColors])].slice(0, 10)
   const stem =
     file.name
       .replace(/\.svg$/i, '')
@@ -311,6 +372,7 @@ export function SvgReview({
       .replace(/^-+|-+$/g, '')
       .toLowerCase()
       .replace(/_\d+x\d+(?:_[a-f0-9]{6})?(?:_[a-f0-9]{8})?$/i, '') || 'image'
+  const filenameStem = stem.slice(0, 60) || 'image'
   return (
     <div className="image-review-backdrop">
       <section
@@ -327,8 +389,21 @@ export function SvgReview({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            if (!busy && preview && connected && outputValid)
-              onApply({ outputWidth: outputSize.width, outputHeight: outputSize.height })
+            if (!busy && preview && connected && outputValid && color) {
+              const selected = `#${color}`
+              const nextRecent = [selected, ...recentColors.filter((item) => item !== selected)].slice(0, 8)
+              setRecentColors(nextRecent)
+              try {
+                localStorage.setItem(recentSvgColorsKey, JSON.stringify(nextRecent))
+              } catch {
+                // Saving an SVG should still work when browser storage is unavailable.
+              }
+              onApply({
+                outputWidth: outputSize.width,
+                outputHeight: outputSize.height,
+                color: selected,
+              })
+            }
           }}
         >
           <header>
@@ -421,11 +496,55 @@ export function SvgReview({
                   {!outputValid && ` · Keep the output at or below ${MAX_IMAGE_PIXELS / 1_000_000} MP.`}
                 </p>
               </div>
-              {outputValid && (
+              <div className="svg-color-editor">
+                <div className="svg-size-heading">
+                  <strong>Color</strong>
+                  <span>Solid fills and strokes use the selected color.</span>
+                </div>
+                <div className="svg-color-inputs">
+                  <input
+                    type="color"
+                    aria-label="Choose SVG color"
+                    value={`#${color ?? '000000'}`}
+                    onChange={(event) => setColorInput(event.target.value)}
+                  />
+                  <label>
+                    Hex color
+                    <input
+                      type="text"
+                      value={colorInput}
+                      spellCheck={false}
+                      aria-invalid={!color}
+                      placeholder="#000000"
+                      onChange={(event) => setColorInput(event.target.value)}
+                    />
+                  </label>
+                </div>
+                {!color && <p role="alert">Enter a three- or six-digit hex color.</p>}
+                {!!palette.length && (
+                  <div className="svg-color-palette" aria-label="Detected and recent colors">
+                    {palette.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className={normalizedHex(item) === color ? 'selected' : ''}
+                        style={{ '--swatch': item } as CSSProperties}
+                        title={item.toUpperCase()}
+                        aria-label={`Use ${item.toUpperCase()}`}
+                        onClick={() => setColorInput(item)}
+                      >
+                        <span />
+                        {item.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <small>Gradients, patterns, transparent paint, and “none” are preserved.</small>
+              </div>
+              {outputValid && color && (
                 <div className="svg-filename-preview">
                   <span>Generated filename</span>
-                  <code>{stem}_{outputSize.width}x{outputSize.height}.svg</code>
-                  <small>The selected hex color will be added here by the color editor.</small>
+                  <code>{filenameStem}_{outputSize.width}x{outputSize.height}_{color}.svg</code>
                 </div>
               )}
             </div>
@@ -440,7 +559,10 @@ export function SvgReview({
             >
               {busy ? 'Stop saving' : 'Cancel'}
             </button>
-            <button className="primary-action" disabled={busy || !preview || !outputValid || !connected}>
+            <button
+              className="primary-action"
+              disabled={busy || !preview || !outputValid || !color || !connected}
+            >
               {busy ? 'Saving…' : 'Save SVG'}
             </button>
           </footer>

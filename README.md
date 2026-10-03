@@ -277,7 +277,7 @@ homepage-hero_2000x1000.webp
 
 If that readable name already belongs to different contents, Picaroo adds a short hash suffix instead of overwriting it. The setting affects future replacements and library imports. Existing assets are not renamed.
 
-SVG input opens a vector review dialog for intrinsic width and height, then passes through SVGO while retaining `viewBox` and IDs. Customized SVG variants use readable names such as `location-pin_32x32.svg` even when hashed filenames are enabled; the selected color suffix will be added by the color-editing milestone. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
+SVG input opens a vector review dialog for intrinsic width, height, and a hex color. Solid fills and strokes are recolored in the live preview while `none`, transparency, gradients, patterns, and opacity are preserved. The result passes through SVGO while retaining `viewBox` and IDs. Customized variants use readable names such as `location-pin_32x32_ff5733.svg` even when hashed filenames are enabled. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
 
 ## Responsive images and backgrounds
 

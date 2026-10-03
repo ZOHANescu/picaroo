@@ -164,6 +164,7 @@ export function AssetLibrary({
               <strong>{asset.name}</strong>
               <span>
                 {asset.kind === 'svg' ? 'SVG' : 'PHOTO'} · {formatBytes(asset.bytes)}
+                {asset.color ? ` · ${asset.color.toUpperCase()}` : ''}
               </span>
               <small>
                 {asset.usages.length} static{' '}
@@ -259,6 +260,7 @@ export function AssetDetails({
         {formatBytes(asset.bytes)}
         {asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ''} ·{' '}
         {asset.kind === 'svg' ? 'SVG' : 'Raster'}
+        {asset.color ? ` · ${asset.color.toUpperCase()}` : ''}
       </p>
       <button className="primary-action reuse-button" onClick={onUse} disabled={!canUse || busy}>
         {busy ? 'Applying…' : 'Use this image'}
