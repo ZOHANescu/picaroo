@@ -13,6 +13,10 @@ import type { VisualEdit } from './visual'
 
 const assetPattern = /\.(svg|png|jpe?g|webp|avif)(\?url)?$/i
 const slash = (value: string) => value.split(path.sep).join('/')
+const imageKind = (value: string) =>
+  /\.svg(?:[?#]|$)/i.test(value) || /^data:image\/svg\+xml;base64,/i.test(value)
+    ? 'svg'
+    : 'raster'
 
 interface Binding {
   source: StringLiteral
@@ -187,10 +191,7 @@ export function analyze(
       line: node.loc?.start.line ?? 1,
       label: label || 'Decorative image',
       current,
-      kind:
-        (component && node.name.name === 'Icon') || /\.svg(?:[?#]|$)/i.test(current)
-          ? 'svg'
-          : 'raster',
+      kind: component && node.name.name === 'Icon' ? 'svg' : imageKind(current),
       presentation: component && node.name.name === 'Icon' ? 'svg-component' : undefined,
       version: hash(source),
       editable,
@@ -334,7 +335,7 @@ export function analyze(
               : `${base.label} · Item ${recordIndex + 1}`,
         version: hash(source + '\0' + document.source),
         current: field?.value ?? '',
-        kind: /\.svg(?:\?|$)/i.test(field?.value ?? '') ? 'svg' : 'raster',
+        kind: imageKind(field?.value ?? ''),
         editable: !!field,
         shared: false,
         canMap: false,
@@ -470,9 +471,23 @@ export function replaceReference(source: string, target: SourceTarget, asset: st
       output.overwrite(target.start, target.end, `{${name}}`)
     }
   } else {
-    const url = `/${slash(asset).replace(/^public\//, '')}`
+    const url = /^data:/i.test(asset) ? asset : `/${slash(asset).replace(/^public\//, '')}`
     if (target.hasSource) output.overwrite(target.start, target.end, JSON.stringify(url))
     else output.appendLeft(target.insertion, ` src=${JSON.stringify(url)} `)
+  }
+  return output.toString()
+}
+
+export function clearReference(source: string, target: SourceTarget) {
+  if (!target.hasSource) return source
+  const output = new MagicString(source)
+  output.overwrite(target.start, target.end, JSON.stringify(''))
+  if (target.binding) {
+    if (target.binding.references !== 1)
+      throw new Error('This imported image is shared. Remove its other references first.')
+    if (target.binding.declaration.specifiers.length !== 1)
+      throw new Error('Mixed asset imports need a manual source change before removal.')
+    output.remove(target.binding.declaration.start!, target.binding.declaration.end!)
   }
   return output.toString()
 }

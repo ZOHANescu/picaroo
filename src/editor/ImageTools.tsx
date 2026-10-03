@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { ImageOptions, ImageSaveProgress, OptimizationProfile } from '../shared'
 import { MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, cropBounds } from '../shared'
 import './image-tools.css'
@@ -173,6 +174,404 @@ export function OptimizationSettings({
   )
 }
 
+function svgLength(value: string | null) {
+  const match = value?.match(/^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i)
+  return match ? Number(match[1]) : undefined
+}
+
+function normalizedHex(value: string) {
+  const raw = value.trim().replace(/^#/, '').toLowerCase()
+  if (/^[a-f0-9]{3}$/.test(raw)) return raw.split('').map((part) => part + part).join('')
+  return /^[a-f0-9]{6}$/.test(raw) ? raw : undefined
+}
+
+function recolorablePaint(value: string) {
+  return (
+    !/^(?:none|transparent|inherit|context-fill|context-stroke)$/i.test(value.trim()) &&
+    !/^url\s*\(/i.test(value.trim())
+  )
+}
+
+function safeSvgPreview(source: string) {
+  const document = new DOMParser().parseFromString(source, 'image/svg+xml')
+  const root = document.documentElement
+  if (root.localName.toLowerCase() !== 'svg' || document.querySelector('parsererror'))
+    throw new Error('Choose a valid SVG file.')
+  const forbidden = new Set([
+    'script',
+    'foreignobject',
+    'iframe',
+    'object',
+    'embed',
+    'style',
+    'animate',
+    'animatetransform',
+    'animatemotion',
+    'set',
+    'image',
+    'feimage',
+  ])
+  const colors = new Set<string>()
+  for (const element of document.querySelectorAll('*')) {
+    if (forbidden.has(element.localName.toLowerCase()))
+      throw new Error('This SVG contains content that cannot be previewed safely.')
+    for (const attribute of [...element.attributes]) {
+      const name = attribute.name.toLowerCase()
+      const value = attribute.value
+      if (
+        name.startsWith('on') ||
+        name === 'xml:base' ||
+        name === 'style' ||
+        ((name === 'href' || name.endsWith(':href')) && !/^#[\w.-]+$/.test(value)) ||
+        (/url\s*\(/i.test(value) && !/^url\(\s*['"]?#[\w.-]+['"]?\s*\)$/.test(value)) ||
+        /javascript:|data:|\\|\/\*/i.test(value)
+      )
+        throw new Error('This SVG contains active content or external resources.')
+      if (['fill', 'stroke', 'color'].includes(name)) {
+        const color = normalizedHex(value)
+        if (color) colors.add(`#${color}`)
+      }
+    }
+  }
+  const viewBox = root
+    .getAttribute('viewBox')
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number)
+  const viewBoxWidth = viewBox?.length === 4 && viewBox.every(Number.isFinite) ? viewBox[2] : 0
+  const viewBoxHeight = viewBox?.length === 4 && viewBox.every(Number.isFinite) ? viewBox[3] : 0
+  let width = svgLength(root.getAttribute('width'))
+  let height = svgLength(root.getAttribute('height'))
+  if ((!width || !height) && viewBoxWidth > 0 && viewBoxHeight > 0) {
+    if (width) height = width * (viewBoxHeight / viewBoxWidth)
+    else if (height) width = height * (viewBoxWidth / viewBoxHeight)
+    else {
+      width = viewBoxWidth
+      height = viewBoxHeight
+    }
+  }
+  if (!width || !height)
+    throw new Error('This SVG needs a viewBox or numeric width and height before it can be resized.')
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+    colors: [...colors],
+  }
+}
+
+function recoloredSvg(source: string, hex: string) {
+  const document = new DOMParser().parseFromString(source, 'image/svg+xml')
+  const root = document.documentElement
+  const color = `#${hex}`
+  root.setAttribute('color', color)
+  if (!root.hasAttribute('fill')) root.setAttribute('fill', color)
+  for (const element of document.querySelectorAll('*'))
+    for (const name of ['fill', 'stroke', 'color']) {
+      const value = element.getAttribute(name)
+      if (value && recolorablePaint(value)) element.setAttribute(name, color)
+    }
+  return new XMLSerializer().serializeToString(document)
+}
+
+const recentSvgColorsKey = 'picaroo:recent-svg-colors'
+
+export function SvgReview({
+  file,
+  label,
+  busy,
+  progress,
+  saveError,
+  connected,
+  onCancel,
+  onApply,
+}: {
+  file: File
+  label: string
+  busy: boolean
+  progress: ImageSaveProgress | null
+  saveError: string
+  connected: boolean
+  onCancel: () => void
+  onApply: (options: ImageOptions) => void
+}) {
+  const [preview, setPreview] = useState<string>()
+  const [source, setSource] = useState('')
+  const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 })
+  const [outputSize, setOutputSize] = useState({ width: 0, height: 0 })
+  const [colorInput, setColorInput] = useState('#000000')
+  const [detectedColors, setDetectedColors] = useState<string[]>([])
+  const [recentColors, setRecentColors] = useState<string[]>(() => {
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem(recentSvgColorsKey) ?? '[]')
+      return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string' && !!normalizedHex(item)).slice(0, 8)
+        : []
+    } catch {
+      return []
+    }
+  })
+  const [locked, setLocked] = useState(true)
+  const [error, setError] = useState('')
+  const dialog = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const previous = document.activeElement
+    dialog.current?.focus()
+    return () => {
+      if (previous instanceof HTMLElement) previous.focus()
+    }
+  }, [])
+  useEffect(() => {
+    let cancelled = false
+    setSource('')
+    setError('')
+    void file
+      .text()
+      .then((source) => {
+        const size = safeSvgPreview(source)
+        if (cancelled) return
+        setSourceSize(size)
+        setOutputSize(size)
+        setDetectedColors(size.colors)
+        setColorInput(size.colors[0] ?? recentColors[0] ?? '#000000')
+        setSource(source)
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Choose a valid SVG file.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [file])
+  const color = normalizedHex(colorInput)
+  useEffect(() => {
+    if (!source) {
+      setPreview(undefined)
+      return
+    }
+    const objectUrl = URL.createObjectURL(
+      new Blob([color ? recoloredSvg(source, color) : source], { type: 'image/svg+xml' }),
+    )
+    setPreview(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [source, color])
+  const aspect = sourceSize.width && sourceSize.height ? sourceSize.width / sourceSize.height : 1
+  const outputValid =
+    Number.isInteger(outputSize.width) &&
+    Number.isInteger(outputSize.height) &&
+    outputSize.width >= 1 &&
+    outputSize.height >= 1 &&
+    outputSize.width <= MAX_IMAGE_DIMENSION &&
+    outputSize.height <= MAX_IMAGE_DIMENSION &&
+    outputSize.width * outputSize.height <= MAX_IMAGE_PIXELS
+  const palette = [...new Set([...detectedColors, ...recentColors])].slice(0, 10)
+  const stem =
+    file.name
+      .replace(/\.svg$/i, '')
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase()
+      .replace(/_\d+x\d+(?:_[a-f0-9]{6})?(?:_[a-f0-9]{8})?$/i, '') || 'image'
+  const filenameStem = stem.slice(0, 60) || 'image'
+  return (
+    <div className="image-review-backdrop">
+      <section
+        className="image-review svg-review"
+        ref={dialog}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="svg-review-title"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !busy) onCancel()
+        }}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!busy && preview && connected && outputValid && color) {
+              const selected = `#${color}`
+              const nextRecent = [selected, ...recentColors.filter((item) => item !== selected)].slice(0, 8)
+              setRecentColors(nextRecent)
+              try {
+                localStorage.setItem(recentSvgColorsKey, JSON.stringify(nextRecent))
+              } catch {
+                // Saving an SVG should still work when browser storage is unavailable.
+              }
+              onApply({
+                outputWidth: outputSize.width,
+                outputHeight: outputSize.height,
+                color: selected,
+              })
+            }
+          }}
+        >
+          <header>
+            <div>
+              <h2 id="svg-review-title">Prepare your SVG</h2>
+              <p>{label}</p>
+            </div>
+            <button
+              type="button"
+              aria-label={busy ? 'Cancel SVG processing' : 'Cancel SVG editing'}
+              onClick={onCancel}
+              disabled={progress?.stage === 'cancelling'}
+            >
+              ×
+            </button>
+          </header>
+          {saveError && <p role="alert">{saveError}</p>}
+          <fieldset className="image-review-grid" disabled={busy}>
+            <div>
+              <div className="svg-preview">
+                {preview && <img src={preview} alt="SVG preview" />}
+                {!preview && !error && <span>Reading SVG…</span>}
+              </div>
+              {error && <p role="alert">{error}</p>}
+              {preview && (
+                <p className="crop-help">
+                  Vector scaling is preserved. CSS in the application can still override these
+                  intrinsic dimensions.
+                </p>
+              )}
+            </div>
+            <div className="output-settings">
+              <div className="svg-size-heading">
+                <strong>Intrinsic size</strong>
+                <span>
+                  Original: {sourceSize.width || '—'} × {sourceSize.height || '—'} px
+                </span>
+              </div>
+              <div className="output-dimensions">
+                <label>
+                  Width
+                  <span className="dimension-input">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max={MAX_IMAGE_DIMENSION}
+                      value={outputSize.width || ''}
+                      onChange={(event) => {
+                        const width = Number(event.target.value)
+                        setOutputSize({
+                          width,
+                          height: locked && width ? Math.max(1, Math.round(width / aspect)) : outputSize.height,
+                        })
+                      }}
+                    />
+                    <span>px</span>
+                  </span>
+                </label>
+                <label>
+                  Height
+                  <span className="dimension-input">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max={MAX_IMAGE_DIMENSION}
+                      value={outputSize.height || ''}
+                      onChange={(event) => {
+                        const height = Number(event.target.value)
+                        setOutputSize({
+                          width: locked && height ? Math.max(1, Math.round(height * aspect)) : outputSize.width,
+                          height,
+                        })
+                      }}
+                    />
+                    <span>px</span>
+                  </span>
+                </label>
+                <label className="aspect-lock">
+                  <input
+                    type="checkbox"
+                    checked={locked}
+                    onChange={(event) => setLocked(event.target.checked)}
+                  />
+                  Lock original aspect ratio
+                </label>
+                <p className={outputValid ? '' : 'dimension-error'}>
+                  Output: {outputSize.width || '—'} × {outputSize.height || '—'} px
+                  {!outputValid && ` · Keep the output at or below ${MAX_IMAGE_PIXELS / 1_000_000} MP.`}
+                </p>
+              </div>
+              <div className="svg-color-editor">
+                <div className="svg-size-heading">
+                  <strong>Color</strong>
+                  <span>Solid fills and strokes use the selected color.</span>
+                </div>
+                <div className="svg-color-inputs">
+                  <input
+                    type="color"
+                    aria-label="Choose SVG color"
+                    value={`#${color ?? '000000'}`}
+                    onChange={(event) => setColorInput(event.target.value)}
+                  />
+                  <label>
+                    Hex color
+                    <input
+                      type="text"
+                      value={colorInput}
+                      spellCheck={false}
+                      aria-invalid={!color}
+                      placeholder="#000000"
+                      onChange={(event) => setColorInput(event.target.value)}
+                    />
+                  </label>
+                </div>
+                {!color && <p role="alert">Enter a three- or six-digit hex color.</p>}
+                {!!palette.length && (
+                  <div className="svg-color-palette" aria-label="Detected and recent colors">
+                    {palette.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className={normalizedHex(item) === color ? 'selected' : ''}
+                        style={{ '--swatch': item } as CSSProperties}
+                        title={item.toUpperCase()}
+                        aria-label={`Use ${item.toUpperCase()}`}
+                        onClick={() => setColorInput(item)}
+                      >
+                        <span />
+                        {item.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <small>Gradients, patterns, transparent paint, and “none” are preserved.</small>
+              </div>
+              {outputValid && color && (
+                <div className="svg-filename-preview">
+                  <span>Generated filename</span>
+                  <code>{filenameStem}_{outputSize.width}x{outputSize.height}_{color}.svg</code>
+                </div>
+              )}
+            </div>
+          </fieldset>
+          {progress && <SaveProgress progress={progress} />}
+          <footer>
+            <button
+              type="button"
+              className="secondary-action cancel-action"
+              onClick={onCancel}
+              disabled={progress?.stage === 'cancelling'}
+            >
+              {busy ? 'Stop saving' : 'Cancel'}
+            </button>
+            <button
+              className="primary-action"
+              disabled={busy || !preview || !outputValid || !color || !connected}
+            >
+              {busy ? 'Saving…' : 'Save SVG'}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 export function ImageReview({
   file,
   preview,
@@ -210,6 +609,8 @@ export function ImageReview({
   )
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
+  const [recolor, setRecolor] = useState(false)
+  const [colorInput, setColorInput] = useState('#000000')
   const dialog = useRef<HTMLElement>(null)
   useEffect(() => {
     const previous = document.activeElement
@@ -225,6 +626,8 @@ export function ImageReview({
     return () => URL.revokeObjectURL(objectUrl)
   }, [file])
   const bounds = cropBounds(dimensions.width, dimensions.height, ratio, focusX, focusY)
+  const color = normalizedHex(colorInput)
+  const imageUrl = url ?? preview
   const outputValid =
     Number.isInteger(outputSize.width) &&
     Number.isInteger(outputSize.height) &&
@@ -269,7 +672,7 @@ export function ImageReview({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            if (!busy && loaded && connected && outputValid)
+            if (!busy && loaded && connected && outputValid && (!recolor || color))
               onApply({
                 profile,
                 ratio,
@@ -277,6 +680,7 @@ export function ImageReview({
                 focusY,
                 outputWidth: outputSize.width,
                 outputHeight: outputSize.height,
+                ...(recolor && color ? { color: `#${color}` } : {}),
               })
           }}
         >
@@ -358,10 +762,11 @@ export function ImageReview({
                   )
                 }}
               >
-                {(url || preview) && (
+                {imageUrl && (
                   <img
-                    src={url ?? preview!}
+                    src={imageUrl}
                     alt="Image crop preview"
+                    className={recolor && color ? 'recolor-source' : undefined}
                     onLoad={(event) => {
                       const natural = {
                         width: event.currentTarget.naturalWidth,
@@ -382,6 +787,18 @@ export function ImageReview({
                       setLoaded(false)
                       setError('This file cannot be previewed. Choose a supported raster image.')
                     }}
+                  />
+                )}
+                {imageUrl && recolor && color && (
+                  <span
+                    className="raster-color-preview"
+                    aria-hidden="true"
+                    style={
+                      {
+                        '--raster-color': `#${color}`,
+                        '--raster-mask': `url(${JSON.stringify(imageUrl)})`,
+                      } as CSSProperties
+                    }
                   />
                 )}
                 {loaded && (
@@ -491,6 +908,44 @@ export function ImageReview({
                   {!outputValid && ` Keep the output at or below ${MAX_IMAGE_PIXELS / 1_000_000} MP.`}
                 </p>
               </div>
+              <div className="svg-color-editor raster-color-editor">
+                <label className="raster-color-toggle">
+                  <input
+                    type="checkbox"
+                    checked={recolor}
+                    onChange={(event) => setRecolor(event.target.checked)}
+                  />
+                  <span>
+                    <strong>Recolor raster icon</strong>
+                    <small>Replace every visible pixel with one color and preserve transparency.</small>
+                  </span>
+                </label>
+                {recolor && (
+                  <>
+                    <div className="svg-color-inputs">
+                      <input
+                        type="color"
+                        aria-label="Choose raster color"
+                        value={`#${color ?? '000000'}`}
+                        onChange={(event) => setColorInput(event.target.value)}
+                      />
+                      <label>
+                        Hex color
+                        <input
+                          type="text"
+                          value={colorInput}
+                          spellCheck={false}
+                          aria-invalid={!color}
+                          placeholder="#000000"
+                          onChange={(event) => setColorInput(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    {!color && <p role="alert">Enter a three- or six-digit hex color.</p>}
+                    <small>Best for monochrome PNG icons. Multicolor artwork will be flattened.</small>
+                  </>
+                )}
+              </div>
             </div>
           </fieldset>
           {progress && <SaveProgress progress={progress} />}
@@ -505,7 +960,7 @@ export function ImageReview({
             </button>
             <button
               className="primary-action"
-              disabled={busy || !loaded || !connected || !outputValid}
+              disabled={busy || !loaded || !connected || !outputValid || (recolor && !color)}
             >
               {busy ? 'Saving…' : 'Save image'}
             </button>

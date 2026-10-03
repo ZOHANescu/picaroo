@@ -15,6 +15,7 @@ test('finds and rewrites static HTML images', () => {
     [
       ['Hero', '/images/hero.jpg', 'raster'],
       ['Logo', 'images/logo.svg', 'svg'],
+      ['Inline', 'data:image/png;base64,abc', 'raster'],
     ],
   )
   assert.match(

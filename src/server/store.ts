@@ -2,7 +2,13 @@ import { readFile, writeFile, mkdir, rename, realpath, unlink, copyFile } from '
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { analyze, replaceReference, reuseReference, mapReference } from '../source-edits/react'
+import {
+  analyze,
+  clearReference,
+  replaceReference,
+  reuseReference,
+  mapReference,
+} from '../source-edits/react'
 import type { SourceTarget } from '../source-edits/react'
 import { optimizeAsset, validateProfile } from '../assets/optimize'
 import type {
@@ -15,7 +21,7 @@ import type {
   ImageSaveStage,
 } from '../shared'
 import { DEFAULT_PROFILE } from '../shared'
-import { analyzeCss, replaceVisual } from '../source-edits/visual'
+import { analyzeCss, clearVisual, replaceVisual } from '../source-edits/visual'
 import { ProjectIndex } from './project-index'
 import { fileURLToPath } from 'node:url'
 import { replaceJsonField } from '../source-edits/json'
@@ -324,10 +330,15 @@ export class ProjectStore {
       onProgress: (percent) => control.onProgress?.('optimizing', percent),
     })
     throwIfCancelled(control.signal)
+    const embedded = /^data:image\/(?:png|jpe?g|webp|avif);base64,/i.test(target.current)
     const directory =
       target.assetDirectory ?? (target.binding ? 'src/assets/picaroo' : this.assetDirectory)
-    const asset = this.generatedAssetPath(directory, originalName, optimized)
-    const publicUrl = this.publicUrl(asset)
+    const asset = embedded ? '' : this.generatedAssetPath(directory, originalName, optimized)
+    const mime =
+      optimized.extension === 'jpg' ? 'image/jpeg' : `image/${optimized.extension}`
+    const publicUrl = embedded
+      ? `data:${mime};base64,${optimized.data.toString('base64')}`
+      : this.publicUrl(asset)
     const document = target.data ? this.index.documents.get(target.data.file)! : undefined
     const file = target.data?.file ?? target.file
     const before = document?.source ?? source
@@ -335,12 +346,20 @@ export class ProjectStore {
       document && target.data
         ? replaceJsonField(document, target.data.pointer, publicUrl)
         : target.visual
-          ? replaceVisual(source, target, asset, optimized.data, optimized.width, publicUrl)
+          ? replaceVisual(
+              source,
+              target,
+              asset,
+              optimized.data,
+              optimized.width,
+              optimized.height,
+              publicUrl,
+            )
           : target.angular
             ? replaceAngularReference(source, target, publicUrl)
             : target.html
               ? replaceHtmlReference(source, target, publicUrl)
-            : replaceReference(source, target, asset)
+            : replaceReference(source, target, embedded ? publicUrl : asset)
     if (!document) {
       if (target.visual?.type === 'css') analyzeCss(after, file)
       else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
@@ -349,7 +368,7 @@ export class ProjectStore {
     }
     throwIfCancelled(control.signal)
     control.onProgress?.('saving', 76)
-    const assetCreated = await this.saveAsset(asset, optimized.data)
+    const assetCreated = embedded ? false : await this.saveAsset(asset, optimized.data)
     try {
       throwIfCancelled(control.signal)
       control.onProgress?.('saving', 86)
@@ -414,7 +433,7 @@ export class ProjectStore {
   private assetUrl(current: string, file: string) {
     const asset = this.index.resolve(current, file)
     if (asset) return this.publicUrl(asset.file)
-    if (/^https?:/.test(current) || current.startsWith('/')) return current
+    if (/^(?:https?:|data:)/.test(current) || current.startsWith('/')) return current
     return '/' + path.posix.normalize(path.posix.join(path.posix.dirname(file), current))
   }
 
@@ -427,10 +446,18 @@ export class ProjectStore {
   private generatedAssetPath(
     directory: string,
     originalName: string,
-    optimized: { data: Buffer; extension: string; width?: number; height?: number },
+    optimized: {
+      data: Buffer
+      extension: string
+      width?: number
+      height?: number
+      color?: string
+    },
   ) {
     const version = hash(optimized.data)
-    if (this.settings.hashFilenames !== false)
+    const customizedSvg =
+      optimized.extension === 'svg' && !!optimized.width && !!optimized.height
+    if (this.settings.hashFilenames !== false && !customizedSvg)
       return `${directory}/${version.slice(0, 24)}.${optimized.extension}`
     const stem =
       path
@@ -439,16 +466,26 @@ export class ProjectStore {
         .replace(/[^a-zA-Z0-9_-]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .toLowerCase()
-        .replace(/_\d+x\d+(?:_[a-f0-9]{8})?$/i, '')
+        .replace(/_\d+x\d+(?:_[a-f0-9]{6})?(?:_[a-f0-9]{8})?$/i, '')
         .slice(0, 60) || 'image'
     const dimensions =
       optimized.width && optimized.height ? `_${optimized.width}x${optimized.height}` : ''
-    const readable = `${directory}/${stem}${dimensions}.${optimized.extension}`
+    const rawColor = optimized.color?.replace(/^#/, '').toLowerCase()
+    const normalizedColor = rawColor?.match(/^[a-f0-9]{3}$/)
+      ? rawColor
+          .split('')
+          .map((value) => value + value)
+          .join('')
+      : rawColor?.match(/^[a-f0-9]{6}$/)
+        ? rawColor
+        : ''
+    const color = normalizedColor ? `_${normalizedColor}` : ''
+    const readable = `${directory}/${stem}${dimensions}${color}.${optimized.extension}`
     const existing = this.index.assets.find(
       (asset) => asset.file.toLowerCase() === readable.toLowerCase(),
     )
     if (!existing || existing.version === version) return readable
-    return `${directory}/${stem}${dimensions}_${version.slice(0, 8)}.${optimized.extension}`
+    return `${directory}/${stem}${dimensions}${color}_${version.slice(0, 8)}.${optimized.extension}`
   }
 
   private canArchive(asset: LibraryAsset) {
@@ -464,6 +501,82 @@ export class ProjectStore {
             entry.after.includes(asset.name)),
       )
     )
+  }
+
+  remove(id: string, version: string) {
+    return this.serialize(async () => {
+      const { target, source } = await this.resolveTarget(id, version)
+      if (!target.editable) throw new Error('This image source cannot be removed automatically.')
+      const asset = this.index.resolve(target.current, target.data?.file ?? target.file)
+      if (asset && asset.usages.length > 1)
+        throw new Error(
+          `This file has ${asset.usages.length} static references. Remove the other references before deleting it.`,
+        )
+      if (asset) await this.index.readAsset(asset.id, asset.version)
+      const document = target.data ? this.index.documents.get(target.data.file)! : undefined
+      const file = target.data?.file ?? target.file
+      const before = document?.source ?? source
+      const after =
+        document && target.data
+          ? replaceJsonField(document, target.data.pointer, '')
+          : target.visual
+            ? clearVisual(source, target)
+            : target.angular
+              ? replaceAngularReference(source, target, '')
+              : target.html
+                ? replaceHtmlReference(source, target, '')
+                : clearReference(source, target)
+      if (before === after && !asset) throw new Error('This image does not have a removable source.')
+      if (!document) {
+        if (target.visual?.type === 'css') analyzeCss(after, file)
+        else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+        else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
+        else analyze(after, target.file, this.components, this.index.documents)
+      }
+      const changeId = randomUUID()
+      const trashFile = asset
+        ? `.picaroo/trash/${changeId}${path.extname(asset.file).toLowerCase()}`
+        : undefined
+      const entry: JournalEntry = {
+        id: changeId,
+        label: `Removed ${target.label}`,
+        file,
+        asset: asset?.file ?? '',
+        kind: target.kind,
+        createdAt: new Date().toISOString(),
+        inputBytes: asset?.bytes ?? Buffer.byteLength(target.current),
+        outputBytes: 0,
+        before,
+        after,
+        operation: 'remove',
+        trashFile,
+        assetVersion: asset?.version,
+      }
+      const history = [entry, ...this.history].slice(0, 50)
+      if (trashFile) await mkdir(path.dirname(await this.safePath(trashFile)), { recursive: true })
+      await this.atomicWrite('.picaroo/history.json', JSON.stringify(history, null, 2))
+      let sourceWritten = false
+      let assetMoved = false
+      try {
+        await this.atomicWrite(file, after)
+        sourceWritten = true
+        if (asset && trashFile) {
+          await rename(await this.safePath(asset.file), await this.safePath(trashFile))
+          assetMoved = true
+        }
+      } catch (error) {
+        if (assetMoved && asset && trashFile)
+          await rename(await this.safePath(trashFile), await this.safePath(asset.file)).catch(
+            () => {},
+          )
+        if (sourceWritten) await this.atomicWrite(file, before).catch(() => {})
+        await this.atomicWrite('.picaroo/history.json', JSON.stringify(this.history, null, 2))
+        throw error
+      }
+      this.history = history
+      await this.reindex()
+      return this.snapshot()
+    })
   }
 
   archive(assetId: string, version: string) {
@@ -508,19 +621,37 @@ export class ProjectStore {
     })
   }
 
-  importAsset(input: Buffer, name = 'image') {
+  importAsset(
+    input: Buffer,
+    name = 'image',
+    options: ImageOptions = {},
+    control: MutationControl = {},
+  ) {
     return this.serialize(async () => {
+      throwIfCancelled(control.signal)
+      control.onProgress?.('preparing', 34)
       await this.reindex()
       const kind = /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(
         input.toString('utf8').replace(/^\uFEFF/, ''),
       )
         ? 'svg'
         : 'raster'
-      const optimized = await optimizeAsset(input, kind, { profile: this.settings })
+      const optimized = await optimizeAsset(
+        input,
+        kind,
+        { ...options, profile: this.settings },
+        {
+          signal: control.signal,
+          onProgress: (percent) => control.onProgress?.('optimizing', percent),
+        },
+      )
+      throwIfCancelled(control.signal)
       const version = hash(optimized.data)
       if (this.index.assets.some((asset) => asset.version === version)) return this.snapshot()
       const file = this.generatedAssetPath(this.assetDirectory, name, optimized)
+      control.onProgress?.('saving', 76)
       await this.saveAsset(file, optimized.data)
+      control.onProgress?.('saving', 86)
       await this.reindex()
       return this.snapshot()
     })
@@ -734,7 +865,36 @@ export class ProjectStore {
           'This file was edited outside Picaroo. Undo is blocked to preserve your changes.',
         )
       }
+      let removedBackup: string | undefined
+      if (entry.operation === 'remove' && entry.trashFile) {
+        const destination = await this.safePath(entry.asset)
+        const backup = await this.safePath(entry.trashFile)
+        const readIfPresent = async (candidate: string) => {
+          try {
+            return await readFile(candidate)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+            throw error
+          }
+        }
+        const archived = await readIfPresent(backup)
+        const restored = await readIfPresent(destination)
+        if (archived && hash(archived) !== entry.assetVersion)
+          throw new Error('The removed image changed in Picaroo trash. Undo is blocked.')
+        if (restored) {
+          if (hash(restored) !== entry.assetVersion)
+            throw new Error('A different file now exists at the removed image path. Undo is blocked.')
+        } else {
+          if (!archived) throw new Error('The removed image is missing from Picaroo trash.')
+          await mkdir(path.dirname(destination), { recursive: true })
+          await copyFile(backup, destination, constants.COPYFILE_EXCL)
+          if (hash(await readFile(destination)) !== entry.assetVersion)
+            throw new Error('The image changed while it was being restored. Undo is blocked.')
+        }
+        if (archived) removedBackup = backup
+      }
       if (current !== entry.before) await this.atomicWrite(entry.file, entry.before)
+      if (removedBackup) await unlink(removedBackup)
       const remaining = this.history.slice(1)
       await this.atomicWrite('.picaroo/history.json', JSON.stringify(remaining, null, 2))
       this.history = remaining

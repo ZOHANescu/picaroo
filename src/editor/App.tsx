@@ -12,7 +12,7 @@ import { CHANNEL, DEFAULT_PROFILE, MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { Icon } from './Icon'
 import { AssetLibrary, AssetDetails, AssetThumbnail } from './Library'
 import { useThumbnails, assetKey } from './useThumbnails'
-import { ImageReview, OptimizationSettings } from './ImageTools'
+import { ImageReview, OptimizationSettings, SvgReview } from './ImageTools'
 import { DataMapping } from './DataMapping'
 import './library.css'
 
@@ -23,19 +23,28 @@ const targetUrl = __PICAROO_TARGET__
 const targetOrigin = new URL(targetUrl).origin
 const bytes = (value: number) => (value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KB`)
 
+type PendingReview =
+  | { kind: 'raster'; target: Target; file?: File; asset?: LibraryAsset }
+  | { kind: 'svg'; action: 'replace'; target: Target; file: File }
+  | { kind: 'svg'; action: 'reprocess'; target: Target; file: File; asset: LibraryAsset }
+  | { kind: 'svg'; action: 'import'; file: File }
+
 export function App() {
   const frame = useRef<HTMLIFrameElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const snapshotRef = useRef<Snapshot | null>(null)
   const saveRequest = useRef<string | null>(null)
+  const assetRequest = useRef<{
+    requestId: string
+    asset: LibraryAsset
+    target?: Target
+  } | null>(null)
+  const selectVariantAfterSave = useRef<Set<string> | null>(null)
   const [saveError, setSaveError] = useState('')
   const [saveProgress, setSaveProgress] = useState<ImageSaveProgress | null>(null)
-  const [pending, setPending] = useState<{
-    target: Target
-    file?: File
-    asset?: LibraryAsset
-  } | null>(null)
+  const [assetLoading, setAssetLoading] = useState('')
+  const [pending, setPending] = useState<PendingReview | null>(null)
   const [targets, setTargets] = useState<VisibleTarget[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [editing, setEditing] = useState(true)
@@ -75,8 +84,8 @@ export function App() {
         return
       }
       if (target.kind === 'svg')
-        send({ type: 'replace', id: target.id, version: target.version, file })
-      else setPending({ target, file })
+        setPending({ kind: 'svg', action: 'replace', target, file })
+      else setPending({ kind: 'raster', target, file })
     },
     [send],
   )
@@ -114,6 +123,11 @@ export function App() {
       const message = event.data as BridgeEvent
       if (message.type === 'ready') {
         setBusy(false)
+        if (assetRequest.current) {
+          assetRequest.current = null
+          setAssetLoading('')
+          setNotice({ error: true, message: 'The preview reloaded before the SVG could be opened.' })
+        }
         reconnectThumbnails()
         if (saveRequest.current) {
           saveRequest.current = null
@@ -131,6 +145,16 @@ export function App() {
         setConnection('connected')
         setSnapshot(message.snapshot)
         snapshotRef.current = message.snapshot
+        if (selectVariantAfterSave.current) {
+          const previous = selectVariantAfterSave.current
+          const variant = message.snapshot.assets.find(
+            (asset) => asset.kind === 'svg' && !previous.has(asset.version),
+          )
+          if (variant) {
+            setLibraryAssetId(variant.id)
+            selectVariantAfterSave.current = null
+          }
+        }
         setTargets(message.visible)
         setRoute(message.path)
       } else if (message.type === 'mutation-result') {
@@ -142,6 +166,7 @@ export function App() {
           setSaveError('Image processing was cancelled. No source changes were applied.')
         else if (message.error) setSaveError(message.error)
         else setPending(null)
+        selectVariantAfterSave.current = null
       } else if (message.type === 'mutation-progress') {
         if (message.requestId === saveRequest.current)
           setSaveProgress((current) =>
@@ -155,7 +180,30 @@ export function App() {
       } else if (message.type === 'busy') setBusy(message.busy)
       else if (message.type === 'notice') setNotice(message)
       else if (message.type === 'thumbnail') receiveThumbnail(message)
-      else if (message.type === 'upload') {
+      else if (message.type === 'asset') {
+        const request = assetRequest.current
+        if (!request || request.requestId !== message.requestId) return
+        assetRequest.current = null
+        setAssetLoading('')
+        if (!message.blob) {
+          setNotice({ error: true, message: message.error ?? 'The SVG could not be opened.' })
+          return
+        }
+        const file = new File([message.blob], request.asset.name, { type: 'image/svg+xml' })
+        setSaveError('')
+        setSaveProgress(null)
+        setPending(
+          request.target
+            ? {
+                kind: 'svg',
+                action: 'reprocess',
+                target: request.target,
+                asset: request.asset,
+                file,
+              }
+            : { kind: 'svg', action: 'import', file },
+        )
+      } else if (message.type === 'upload') {
         const target = snapshotRef.current?.targets.find((item) => item.id === message.id)
         if (target) {
           setSelectedId(target.id)
@@ -184,6 +232,44 @@ export function App() {
     if (!file || !selected || busy) return
     setNotice(null)
     prepareUpload(selected, file)
+  }
+
+  async function editEmbeddedRaster(target: Target) {
+    if (busy || !/^data:image\/(?:png|jpe?g|webp|avif);base64,/i.test(target.current)) return
+    try {
+      const blob = await fetch(target.current).then((response) => response.blob())
+      const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type.slice('image/'.length)
+      const stem =
+        target.label
+          .normalize('NFKD')
+          .replace(/[^a-zA-Z0-9_-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .toLowerCase() || 'embedded-image'
+      prepareUpload(target, new File([blob], `${stem}.${extension}`, { type: blob.type }))
+    } catch {
+      setNotice({ error: true, message: 'The embedded image could not be opened.' })
+    }
+  }
+
+  function importAsset(file: File) {
+    setSaveError('')
+    setSaveProgress(null)
+    if (file.size > MAX_UPLOAD) {
+      setNotice({ error: true, message: `Choose a file up to ${MAX_UPLOAD_MB} MB.` })
+      return
+    }
+    if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name))
+      setPending({ kind: 'svg', action: 'import', file })
+    else send({ type: 'import', file })
+  }
+
+  function editSvg(asset: LibraryAsset, target?: Target) {
+    if (busy || assetLoading || connection !== 'connected') return
+    const requestId = crypto.randomUUID()
+    assetRequest.current = { requestId, asset, target }
+    setAssetLoading(asset.id)
+    setNotice(null)
+    send({ type: 'asset', requestId, assetId: asset.id, version: asset.version })
   }
 
   return (
@@ -307,6 +393,8 @@ export function App() {
                   <small>
                     {change.operation === 'archive'
                       ? 'Moved to Picaroo trash'
+                      : change.operation === 'remove'
+                        ? 'Removed image and local file'
                       : change.operation === 'map'
                         ? 'Linked JSON field'
                         : change.operation === 'reuse'
@@ -427,7 +515,7 @@ export function App() {
                   onSelect={setLibraryAssetId}
                   thumbnails={thumbnails}
                   busy={busy || connection !== 'connected'}
-                  onImport={(file) => send({ type: 'import', file })}
+                  onImport={importAsset}
                   files={snapshot?.index.files ?? 0}
                   issues={snapshot?.index.issues ?? []}
                   settingsPanel={
@@ -584,7 +672,11 @@ export function App() {
                   libraryAsset?.kind === selected.kind &&
                   connection === 'connected'
                 }
-                busy={busy}
+                busy={busy || !!assetLoading}
+                opening={assetLoading === libraryAsset?.id}
+                onEdit={() => {
+                  if (libraryAsset) editSvg(libraryAsset)
+                }}
                 onArchive={() => {
                   if (libraryAsset)
                     send({
@@ -679,9 +771,31 @@ export function App() {
                       <button
                         className="secondary-action"
                         disabled={busy}
-                        onClick={() => setPending({ target: selected, asset: currentAsset })}
+                        onClick={() =>
+                          setPending({ kind: 'raster', target: selected, asset: currentAsset })
+                        }
                       >
                         Crop / optimize current image
+                      </button>
+                    )}
+                    {!currentAsset &&
+                      selected.kind === 'raster' &&
+                      /^data:image\/(?:png|jpe?g|webp|avif);base64,/i.test(selected.current) && (
+                        <button
+                          className="secondary-action"
+                          disabled={busy}
+                          onClick={() => void editEmbeddedRaster(selected)}
+                        >
+                          Edit color / crop embedded image
+                        </button>
+                      )}
+                    {currentAsset?.kind === 'svg' && (
+                      <button
+                        className="secondary-action"
+                        disabled={busy || !!assetLoading || connection !== 'connected'}
+                        onClick={() => editSvg(currentAsset, selected)}
+                      >
+                        {assetLoading === currentAsset.id ? 'Opening SVG…' : 'Edit current SVG'}
                       </button>
                     )}
                     <button
@@ -739,6 +853,22 @@ export function App() {
                           : `Auto-oriented. ${snapshot?.settings.format.toUpperCase() ?? 'WEBP'} defaults; crop and adjust output before saving.`}
                       </p>
                     </div>
+                    {(selected.current || selected.presentation === 'inline-svg') && (
+                      <button
+                        className="secondary-action remove-picture-action"
+                        disabled={busy || connection !== 'connected'}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              'Remove this image reference? Its local file will be moved to Picaroo trash when it is not used elsewhere. The image element will remain.',
+                            )
+                          )
+                            send({ type: 'remove', id: selected.id, version: selected.version })
+                        }}
+                      >
+                        Remove picture from project
+                      </button>
+                    )}
                   </>
                 )}
               </>
@@ -784,7 +914,7 @@ export function App() {
           </div>
         )}
       </main>
-      {pending && (
+      {pending?.kind === 'raster' && (
         <ImageReview
           file={pending.file}
           preview={
@@ -848,6 +978,68 @@ export function App() {
                 assetVersion: pending.asset.version,
                 options,
               })
+          }}
+        />
+      )}
+      {pending?.kind === 'svg' && (
+        <SvgReview
+          file={pending.file}
+          label={pending.action === 'import' ? pending.file.name : pending.target.label}
+          busy={busy}
+          progress={saveProgress}
+          saveError={
+            saveError ||
+            (connection !== 'connected'
+              ? 'The project is disconnected. Keep the app running to save this SVG.'
+              : '')
+          }
+          connected={connection === 'connected'}
+          onCancel={() => {
+            if (saveRequest.current) {
+              send({ type: 'cancel', requestId: saveRequest.current })
+              setSaveProgress({ stage: 'cancelling', percent: saveProgress?.percent ?? 0 })
+              return
+            }
+            setPending(null)
+            setSaveError('')
+            setSaveProgress(null)
+          }}
+          onApply={(options) => {
+            if (busy || saveRequest.current || connection !== 'connected') return
+            const requestId = crypto.randomUUID()
+            saveRequest.current = requestId
+            setSaveError('')
+            setSaveProgress(
+              pending.action === 'reprocess'
+                ? { stage: 'preparing', percent: 25 }
+                : { stage: 'uploading', percent: 2 },
+            )
+            setBusy(true)
+            if (pending.action === 'replace')
+              send({
+                type: 'replace',
+                requestId,
+                id: pending.target.id,
+                version: pending.target.version,
+                file: pending.file,
+                options,
+              })
+            else if (pending.action === 'reprocess')
+              send({
+                type: 'reprocess',
+                requestId,
+                id: pending.target.id,
+                version: pending.target.version,
+                assetId: pending.asset.id,
+                assetVersion: pending.asset.version,
+                options,
+              })
+            else {
+              selectVariantAfterSave.current = new Set(
+                snapshotRef.current?.assets.map((asset) => asset.version) ?? [],
+              )
+              send({ type: 'import', requestId, file: pending.file, options })
+            }
           }}
         />
       )}

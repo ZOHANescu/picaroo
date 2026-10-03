@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { transformWithEsbuild } from 'vite'
 import type { ImageSaveProgress } from '../shared'
 import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
+import { optimizeAsset } from '../assets/optimize'
 import { ProjectStore } from './store'
 import type { ProjectFramework } from '../integrations/project'
 
@@ -153,6 +154,12 @@ export class PicarooService {
           this.finishOperation(body.requestId, operation)
         }
       }
+      if (pathname === `${prefix}/api/remove` && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 1024)).toString())
+        if (typeof body.id !== 'string' || typeof body.version !== 'string')
+          throw new Error('Missing image target or version.')
+        return respond(res, 200, await this.store.remove(body.id, body.version))
+      }
       if (pathname === `${prefix}/api/thumbnail` && req.method === 'GET') {
         const query = new URL(req.url!, 'http://localhost').searchParams
         const thumbnail = await this.store.index.thumbnail(
@@ -164,17 +171,57 @@ export class PicarooService {
         res.end(thumbnail)
         return true
       }
-      if (pathname === `${prefix}/api/import` && req.method === 'POST')
-        return respond(
-          res,
-          200,
-          await this.store.importAsset(
-            await readBody(req, MAX_UPLOAD),
-            typeof req.headers['x-picaroo-name'] === 'string'
-              ? decodeURIComponent(req.headers['x-picaroo-name'])
-              : undefined,
-          ),
+      if (pathname === `${prefix}/api/asset` && req.method === 'GET') {
+        const query = new URL(req.url!, 'http://localhost').searchParams
+        const { asset, data } = await this.store.index.readAsset(
+          query.get('id') ?? '',
+          query.get('version') ?? '',
         )
+        if (asset.kind !== 'svg') throw new Error('Only SVG assets can be opened for editing.')
+        const validated = await optimizeAsset(data, 'svg')
+        res.setHeader('Content-Type', 'image/svg+xml')
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+        res.end(validated.data)
+        return true
+      }
+      if (pathname === `${prefix}/api/import` && req.method === 'POST') {
+        const rawOptions = req.headers['x-picaroo-options']
+        if (rawOptions && (typeof rawOptions !== 'string' || rawOptions.length > 4096))
+          throw new Error('Invalid image options.')
+        const rawName = req.headers['x-picaroo-name']
+        if (rawName && (typeof rawName !== 'string' || rawName.length > 1024))
+          throw new Error('Invalid image filename.')
+        const requestId = req.headers['x-picaroo-request']
+        const operation = this.beginOperation(requestId, 'uploading', 3)
+        try {
+          return respond(
+            res,
+            200,
+            await this.store.importAsset(
+              await readBody(
+                req,
+                MAX_UPLOAD,
+                operation?.controller.signal,
+                (percent) => {
+                  if (operation) operation.progress = { stage: 'uploading', percent }
+                },
+              ),
+              typeof rawName === 'string' ? decodeURIComponent(rawName) : undefined,
+              typeof rawOptions === 'string' ? JSON.parse(rawOptions) : undefined,
+              operation
+                ? {
+                    signal: operation.controller.signal,
+                    onProgress: (stage, percent) => {
+                      operation.progress = { stage, percent }
+                    },
+                  }
+                : undefined,
+            ),
+          )
+        } finally {
+          this.finishOperation(requestId, operation)
+        }
+      }
       if (
         (pathname === `${prefix}/api/reuse` || pathname === `${prefix}/api/map`) &&
         req.method === 'POST'

@@ -59,6 +59,17 @@ export async function optimizeAsset(
   throwIfCancelled(control.signal)
   const profile = validateProfile(options.profile ?? DEFAULT_PROFILE)
   const { ratio = 0, focusX = 0.5, focusY = 0.5, outputWidth, outputHeight } = options
+  const rawColor = options.color?.trim().replace(/^#/, '').toLowerCase()
+  const selectedColor = rawColor?.match(/^[a-f0-9]{3}$/)
+    ? rawColor
+        .split('')
+        .map((value) => value + value)
+        .join('')
+    : rawColor?.match(/^[a-f0-9]{6}$/)
+      ? rawColor
+      : undefined
+  if (options.color !== undefined && !selectedColor)
+    throw new Error('Choose a valid three- or six-digit hex color.')
   if (
     !Number.isFinite(ratio) ||
     ratio < 0 ||
@@ -73,12 +84,13 @@ export async function optimizeAsset(
   )
     throw new Error('Invalid crop or focal point.')
   const hasExactSize = outputWidth !== undefined || outputHeight !== undefined
+  const minimumOutputDimension = kind === 'svg' ? 1 : 16
   if (
     hasExactSize &&
     (!Number.isInteger(outputWidth) ||
       !Number.isInteger(outputHeight) ||
-      outputWidth! < 16 ||
-      outputHeight! < 16 ||
+      outputWidth! < minimumOutputDimension ||
+      outputHeight! < minimumOutputDimension ||
       outputWidth! > MAX_IMAGE_DIMENSION ||
       outputHeight! > MAX_IMAGE_DIMENSION ||
       outputWidth! * outputHeight! > MAX_IMAGE_PIXELS)
@@ -146,14 +158,69 @@ export async function optimizeAsset(
       throw new Error(
         'SVG document types, entities, and processing instructions are not supported.',
       )
+    const sizeSvg = {
+      name: 'picaroo-svg-size',
+      fn: () => ({
+        element: {
+          enter(node: { name: string; attributes: Record<string, string> }) {
+            if (node.name.toLowerCase() !== 'svg' || !hasExactSize) return
+            if (!node.attributes.viewBox) {
+              const numeric = (value?: string) => {
+                const match = value?.match(/^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i)
+                return match ? Number(match[1]) : undefined
+              }
+              const sourceWidth = numeric(node.attributes.width)
+              const sourceHeight = numeric(node.attributes.height)
+              if (!sourceWidth || !sourceHeight)
+                throw new Error(
+                  'This SVG needs a viewBox or numeric width and height before it can be resized.',
+                )
+              node.attributes.viewBox = `0 0 ${sourceWidth} ${sourceHeight}`
+            }
+            node.attributes.width = String(outputWidth)
+            node.attributes.height = String(outputHeight)
+          },
+        },
+      }),
+    }
+    const recolorSvg = {
+      name: 'picaroo-svg-color',
+      fn: () => ({
+        element: {
+          enter(node: { name: string; attributes: Record<string, string> }) {
+            if (!selectedColor) return
+            const color = `#${selectedColor}`
+            const recolorable = (value: string) =>
+              !/^(?:none|transparent|inherit|context-fill|context-stroke)$/i.test(value.trim()) &&
+              !/^url\s*\(/i.test(value.trim())
+            if (node.name.toLowerCase() === 'svg') {
+              node.attributes.color = color
+              if (!node.attributes.fill) node.attributes.fill = color
+            }
+            for (const attribute of ['fill', 'stroke', 'color'])
+              if (node.attributes[attribute] && recolorable(node.attributes[attribute]))
+                node.attributes[attribute] = color
+          },
+        },
+      }),
+    }
     const result = optimize(text, {
       multipass: false,
       plugins: [
         staticOnly,
         { name: 'preset-default', params: { overrides: { cleanupIds: false } } },
+        recolorSvg,
+        sizeSvg,
+        { ...staticOnly, name: 'picaroo-static-svg-output' },
       ],
     })
-    return { data: Buffer.from(result.data), extension: 'svg', width: undefined, height: undefined }
+    return {
+      data: Buffer.from(result.data),
+      extension: 'svg',
+      width: hasExactSize ? outputWidth : undefined,
+      height: hasExactSize ? outputHeight : undefined,
+      color: selectedColor,
+    }
   }
   // Decode by content; extensions and client MIME types are never trusted.
   const decoder = sharp(input, {
@@ -187,6 +254,13 @@ export async function optimizeAsset(
         fit: 'inside',
         withoutEnlargement: true,
       })
+  if (selectedColor) {
+    const red = Number.parseInt(selectedColor.slice(0, 2), 16)
+    const green = Number.parseInt(selectedColor.slice(2, 4), 16)
+    const blue = Number.parseInt(selectedColor.slice(4, 6), 16)
+    // Replace RGB while retaining the source alpha channel, including anti-aliased edges.
+    pipeline = pipeline.ensureAlpha().linear([0, 0, 0, 1], [red, green, blue, 0])
+  }
   if (profile.format === 'jpeg')
     pipeline = pipeline
       .flatten({ background: '#ffffff' })
@@ -209,5 +283,6 @@ export async function optimizeAsset(
     extension: profile.format === 'jpeg' ? 'jpg' : profile.format,
     width: info.width,
     height: info.height,
+    color: selectedColor,
   }
 }

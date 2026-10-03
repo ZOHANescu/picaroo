@@ -92,6 +92,9 @@ export class ProjectIndex {
               const metadata = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS })
                 .metadata()
                 .catch(() => undefined)
+              const generatedSvgColor = /_\d+x\d+_([a-f0-9]{6})(?:_[a-f0-9]{8})?\.svg$/i.exec(
+                entry.name,
+              )?.[1]
               asset = {
                 id: hash(file).slice(0, 20),
                 file,
@@ -101,6 +104,9 @@ export class ProjectIndex {
                 bytes: buffer.length,
                 width: metadata?.width,
                 height: metadata?.height,
+                color: generatedSvgColor
+                  ? `#${generatedSvgColor.toLowerCase()}`
+                  : undefined,
                 usages: [],
               }
               this.cache.set(file, { signature, asset })

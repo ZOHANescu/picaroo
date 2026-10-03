@@ -40,6 +40,7 @@ export interface LibraryAsset {
   bytes: number
   width?: number
   height?: number
+  color?: string
   usages: AssetUsage[]
   canArchive?: boolean
 }
@@ -62,7 +63,7 @@ export interface Change {
   outputBytes: number
   width?: number
   height?: number
-  operation?: 'replace' | 'reuse' | 'map' | 'archive'
+  operation?: 'replace' | 'reuse' | 'map' | 'archive' | 'remove'
 }
 
 export interface Snapshot {
@@ -95,11 +96,18 @@ export type EditorCommand =
     }
   | { type: 'undo'; id: string }
   | { type: 'thumbnail'; assetId: string; version: string }
+  | { type: 'asset'; requestId: string; assetId: string; version: string }
   | { type: 'reuse'; id: string; version: string; assetId: string; assetVersion: string }
-  | { type: 'import'; file: File }
+  | {
+      type: 'import'
+      file: File
+      options?: ImageOptions
+      requestId?: string
+    }
   | { type: 'map'; id: string; version: string; field: DataField }
   | { type: 'settings'; profile: OptimizationProfile }
   | { type: 'archive'; assetId: string; version: string }
+  | { type: 'remove'; id: string; version: string }
   | { type: 'cancel'; requestId: string }
   | {
       type: 'reprocess'
@@ -120,6 +128,14 @@ export type BridgeEvent =
   | { type: 'mutation-progress'; requestId: string; progress: ImageSaveProgress }
   | { type: 'notice'; message: string; error?: boolean }
   | { type: 'thumbnail'; assetId: string; version: string; blob: Blob | null }
+  | {
+      type: 'asset'
+      requestId: string
+      assetId: string
+      version: string
+      blob: Blob | null
+      error?: string
+    }
   | { type: 'upload'; id: string; version: string; file: File }
 
 export interface OptimizationProfile {
@@ -137,6 +153,7 @@ export interface ImageOptions {
   focusY?: number
   outputWidth?: number
   outputHeight?: number
+  color?: string
 }
 
 export type ImageSaveStage =

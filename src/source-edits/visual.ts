@@ -20,6 +20,10 @@ export interface VisualEdit {
   contentEnd?: number
   viewBoxStart?: number
   viewBoxEnd?: number
+  widthAttributeStart?: number
+  widthAttributeEnd?: number
+  heightAttributeStart?: number
+  heightAttributeEnd?: number
   mimeStart?: number
   mimeEnd?: number
   format?: 'webp' | 'avif' | 'jpeg' | 'png'
@@ -112,7 +116,7 @@ export function analyzeCss(source: string, file: string): SourceTarget[] {
     if (valueStart < 0) return
     for (const match of urls(decl.value)) {
       const current = match[2].trim()
-      if (!current || current.startsWith('data:') || current.includes('var(')) continue
+      if (!current || current.includes('var(')) continue
       const start = valueStart + match.index!
       const target = base(source, file, start, `Background · ${rule.selector}`)
       targets.push({
@@ -121,7 +125,10 @@ export function analyzeCss(source: string, file: string): SourceTarget[] {
         conditions,
         shared: true,
         current,
-        kind: /\.svg(?:[?#]|$)/i.test(current) ? 'svg' : 'raster',
+        kind:
+          /\.svg(?:[?#]|$)/i.test(current) || /^data:image\/svg\+xml;base64,/i.test(current)
+            ? 'svg'
+            : 'raster',
         presentation: 'background',
         start,
         end: start + match[0].length,
@@ -178,7 +185,7 @@ export function analyzeVisual(source: string, file: string): SourceTarget[] {
           parent.openingElement.name.type === 'JSXIdentifier' &&
           parent.openingElement.name.name === 'picture',
       )
-    if (srcset && (node.name.name === 'img' || pictureSource)) {
+    if (srcset?.value && (node.name.name === 'img' || pictureSource)) {
       const value = srcset.value
       // Static local/HTTP candidates only; commas inside URLs require manual mapping.
       const entries = responsiveEntries(value)
@@ -303,6 +310,8 @@ export function analyzeVisual(source: string, file: string): SourceTarget[] {
       })
     if (dynamic) return // Components such as Icon expose a replaceable SVG source at their call sites.
     const viewBox = attr('viewBox')?.value
+    const width = attr('width')
+    const height = attr('height')
     targets.push({
       ...create(node.start!, `SVG · ${literal(attr('aria-label'))?.value ?? path.basename(file)}`),
       kind: 'svg',
@@ -315,6 +324,10 @@ export function analyzeVisual(source: string, file: string): SourceTarget[] {
         contentEnd: element.closingElement.start!,
         viewBoxStart: viewBox?.start ?? undefined,
         viewBoxEnd: viewBox?.end ?? undefined,
+        widthAttributeStart: width?.start ?? undefined,
+        widthAttributeEnd: width?.end ?? undefined,
+        heightAttributeStart: height?.start ?? undefined,
+        heightAttributeEnd: height?.end ?? undefined,
       },
     })
   })
@@ -408,6 +421,7 @@ export function replaceVisual(
   asset: string,
   input: Buffer,
   width?: number,
+  height?: number,
   publicUrl?: string,
 ) {
   const edit = target.visual!
@@ -420,6 +434,14 @@ export function replaceVisual(
     if (edit.viewBoxStart !== undefined)
       output.overwrite(edit.viewBoxStart, edit.viewBoxEnd!, JSON.stringify(svg.box))
     else output.appendLeft(target.insertion, ` viewBox=${JSON.stringify(svg.box)} `)
+    if (width && height) {
+      if (edit.widthAttributeStart !== undefined)
+        output.overwrite(edit.widthAttributeStart, edit.widthAttributeEnd!, `width={${width}}`)
+      else output.appendLeft(target.insertion, ` width={${width}}`)
+      if (edit.heightAttributeStart !== undefined)
+        output.overwrite(edit.heightAttributeStart, edit.heightAttributeEnd!, `height={${height}}`)
+      else output.appendLeft(target.insertion, ` height={${height}}`)
+    }
   } else if (edit.type === 'css')
     output.overwrite(target.start, target.end, `url(${JSON.stringify(url)})`)
   else {
@@ -450,6 +472,29 @@ export function replaceVisual(
       // A <source> type applies to all candidates, so mixed-format lists must retain their format.
       output.overwrite(edit.mimeStart, edit.mimeEnd!, JSON.stringify(mime))
     }
+  }
+  return output.toString()
+}
+
+export function clearVisual(source: string, target: SourceTarget) {
+  const edit = target.visual!
+  const output = new MagicString(source)
+  if (edit.type === 'svg') {
+    output.overwrite(edit.contentStart!, edit.contentEnd!, '')
+  } else if (edit.type === 'css') {
+    output.overwrite(target.start, target.end, 'none')
+  } else if (edit.type === 'background') {
+    const value = new MagicString(edit.value!)
+    value.overwrite(edit.urlStart!, edit.urlEnd!, '')
+    output.overwrite(target.start, target.end, JSON.stringify(value.toString()))
+  } else {
+    const value = edit.value!
+    const before = value.lastIndexOf(',', edit.urlStart! - 1)
+    const after = value.indexOf(',', edit.urlEnd!)
+    const start = before < 0 ? 0 : before
+    const end = after < 0 ? value.length : before < 0 ? after + 1 : after
+    const next = value.slice(0, start) + value.slice(end)
+    output.overwrite(target.start, target.end, JSON.stringify(next.trim()))
   }
   return output.toString()
 }
