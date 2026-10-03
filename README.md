@@ -15,7 +15,7 @@ Picaroo is application-independent: it contains no assumptions about a particula
 - Updates JSX, TSX, CSS, imports, public URLs, and supported JSON fields.
 - Tracks static image usage across the whole project.
 - Provides a reusable local asset library with thumbnails and filters.
-- Supports crop ratios, focal points, output formats, quality, and maximum dimensions.
+- Supports crop ratios, focal points, output formats, quality, and exact per-image dimensions.
 - Edits individual records in supported JSON-backed lists and galleries.
 - Handles CSS backgrounds, inline SVG, and existing responsive `srcSet` candidates.
 - Keeps persistent, source-aware Undo history.
@@ -170,9 +170,10 @@ Keep both development servers running while editing.
 2. Keep **Edit images** enabled.
 3. Select a highlighted image in the preview or the **Page images** list.
 4. Drop one replacement file or use the file chooser.
-5. Review raster crop and optimization settings, then select **Save image**. SVG replacements save directly.
-6. Let Vite refresh the application preview.
-7. Use **Change history** to undo the newest change when needed.
+5. Review raster crop and optimization settings. Output width and height begin at the uploaded image's resolution and can be edited before selecting **Save image**. SVG replacements save directly.
+6. Follow the upload, preparation, optimization, save, and preview-refresh steps. Select **Cancel process** to stop an active raster save safely.
+7. Let Vite refresh the application preview.
+8. Use **Change history** to undo the newest change when needed.
 
 Switch to **Browse** when normal application navigation is needed. Desktop and mobile buttons change the preview viewport.
 
@@ -258,7 +259,9 @@ Default raster processing:
 - No upscaling.
 - Optional aspect-ratio crop and focal point.
 
-Open **Asset library → Project optimization defaults** to choose WebP, AVIF, JPEG, or lossless PNG; quality from 1–100; and maximum dimensions from 16–4096 pixels. JPEG transparency is flattened onto white.
+In the image review dialog, the uploaded image's own resolution is used as the initial output size. Editing **Output width** or **Output height** requests that exact final resolution (up to 40 megapixels), including intentional upscaling. Changing the crop shape resets the output dimensions to the crop's native pixel size.
+
+Open **Asset library → Project optimization defaults** to choose WebP, AVIF, JPEG, or lossless PNG; quality from 1–100; and maximum dimensions from 16–4096 pixels for background imports and operations that do not provide an exact output size. JPEG transparency is flattened onto white.
 
 Generated filenames are hashed by default:
 

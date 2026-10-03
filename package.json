@@ -15,7 +15,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "test": "node --import tsx/esm --test src/source-edits/angular.test.ts src/source-edits/html.test.ts src/source-edits/react.test.ts src/integrations/project.test.ts src/integrations/components.test.ts",
+    "test": "node --import tsx/esm --test src/assets/optimize.test.ts src/source-edits/angular.test.ts src/source-edits/html.test.ts src/source-edits/react.test.ts src/integrations/project.test.ts src/integrations/components.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
