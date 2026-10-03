@@ -28,7 +28,7 @@ test('rejects output dimensions above the safe pixel limit', async () => {
 
   await assert.rejects(
     optimizeAsset(input, 'raster', { outputWidth: 10_000, outputHeight: 10_000 }),
-    /no more than 40 megapixels/,
+    /no more than 64 megapixels/,
   )
 })
 

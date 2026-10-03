@@ -249,7 +249,7 @@ The scan excludes hidden directories, symlinks, dependencies, build output, and 
 
 ## Image optimization
 
-Raster input supports JPEG, PNG, WebP, and AVIF. Picaroo rejects animated images and inputs above 40 million pixels or 50 MB.
+Raster input supports JPEG, PNG, WebP, and AVIF. Picaroo rejects animated images and inputs above 64 million pixels or 50 MB.
 
 Default raster processing:
 
@@ -259,7 +259,7 @@ Default raster processing:
 - No upscaling.
 - Optional aspect-ratio crop and focal point.
 
-In the image review dialog, the uploaded image's own resolution is used as the initial output size. Editing **Output width** or **Output height** requests that exact final resolution (up to 40 megapixels), including intentional upscaling. Changing the crop shape resets the output dimensions to the crop's native pixel size.
+In the image review dialog, the uploaded image's own resolution is used as the initial output size. Editing **Output width** or **Output height** requests that exact final resolution (up to 64 megapixels), including intentional upscaling. Changing the crop shape resets the output dimensions to the crop's native pixel size.
 
 Open **Asset library → Project optimization defaults** to choose WebP, AVIF, JPEG, or lossless PNG; quality from 1–100; and maximum dimensions from 16–4096 pixels for background imports and operations that do not provide an exact output size. JPEG transparency is flattened onto white.
 

@@ -152,7 +152,7 @@ export interface ImageSaveProgress {
   percent: number
 }
 
-export const MAX_IMAGE_PIXELS = 40_000_000
+export const MAX_IMAGE_PIXELS = 64_000_000
 export const MAX_IMAGE_DIMENSION = 40_000
 
 export const DEFAULT_PROFILE: OptimizationProfile = {

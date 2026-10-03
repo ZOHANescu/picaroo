@@ -156,8 +156,16 @@ export async function optimizeAsset(
     return { data: Buffer.from(result.data), extension: 'svg', width: undefined, height: undefined }
   }
   // Decode by content; extensions and client MIME types are never trusted.
-  const decoder = sharp(input, { limitInputPixels: 40_000_000, animated: true, failOn: 'warning' })
-  const metadata = await decoder.metadata().catch(() => {
+  const decoder = sharp(input, {
+    limitInputPixels: MAX_IMAGE_PIXELS,
+    animated: true,
+    failOn: 'warning',
+  })
+  const metadata = await decoder.metadata().catch((error: unknown) => {
+    if (error instanceof Error && /pixel limit/i.test(error.message))
+      throw new Error(
+        `This image exceeds the ${MAX_IMAGE_PIXELS / 1_000_000} megapixel resolution limit.`,
+      )
     throw new Error('Choose a valid JPEG, PNG, WebP, or AVIF image.')
   })
   throwIfCancelled(control.signal)
