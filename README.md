@@ -242,6 +242,7 @@ The **Asset library** scans the project without requiring every route to be open
 - Imports, literal paths, CSS URLs, JSON fields, and mapped consumers.
 - Reuse across compatible image targets.
 - Importing without immediately changing a placement.
+- Reopening SVG assets to create new size and color variants without overwriting the original.
 
 The index is static analysis. Computed URLs, API-provided assets, arbitrary runtime transformations, and unsupported aliases may not be detected. **No static references** means the index found no supported reference; it is not proof that an asset is unused at runtime.
 
@@ -278,6 +279,8 @@ homepage-hero_2000x1000.webp
 If that readable name already belongs to different contents, Picaroo adds a short hash suffix instead of overwriting it. The setting affects future replacements and library imports. Existing assets are not renamed.
 
 SVG input opens a vector review dialog for intrinsic width, height, and a hex color. Solid fills and strokes are recolored in the live preview while `none`, transparency, gradients, patterns, and opacity are preserved. The result passes through SVGO while retaining `viewBox` and IDs. Customized variants use readable names such as `location-pin_32x32_ff5733.svg` even when hashed filenames are enabled. A conservative static-content policy rejects scripts, event handlers, embedded images, style elements, animation, external resources, and XML entities. Inline SVG replacements prefix internal IDs and their references per source slot.
+
+Existing library SVGs can be reopened with **Edit SVG variant**. Saving a different size or color creates another asset and selects it in the library; the original remains unchanged. When the readable filename is already occupied by different SVG content, a short content hash is appended. SVGs without a `viewBox` are accepted for resizing only when they provide numeric width and height. Multi-color solid artwork is intentionally flattened to the selected color, while local gradients and transparent regions are retained.
 
 ## Responsive images and backgrounds
 

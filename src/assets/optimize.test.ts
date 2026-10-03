@@ -84,6 +84,7 @@ test('recolors solid SVG paint while preserving none, gradients, and opacity', a
       <path d="M0 0h8v8H0z"/>
       <path fill="none" stroke="#f00" stroke-opacity=".5" d="M1 1h6v6H1z"/>
       <path fill="url(#paint)" d="M8 8h8v8H8z"/>
+      <path fill="currentColor" stroke="#00f" d="M16 16h8v8h-8z"/>
     </svg>
   `)
 
@@ -100,6 +101,7 @@ test('recolors solid SVG paint while preserving none, gradients, and opacity', a
   assert.match(output, /fill="none"/)
   assert.match(output, /fill="url\(#paint\)"/)
   assert.match(output, /stroke-opacity="\.5"/)
+  assert.doesNotMatch(output, /currentColor|#00f/i)
 })
 
 test('rejects invalid SVG colors', async () => {
@@ -130,4 +132,25 @@ test('imports customized SVGs with original name, dimensions, and normalized col
   assert.equal(asset.height, 32)
   assert.equal(asset.color, '#ff5533')
   assert.match(await readFile(path.join(root, asset.file), 'utf8'), /fill="#ff5533"/)
+
+  const secondInput = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>',
+  )
+  await store.importAsset(secondInput, 'Location Pin.svg', {
+    outputWidth: 32,
+    outputHeight: 32,
+    color: '#f53',
+  })
+  await store.importAsset(secondInput, 'Location Pin.svg', {
+    outputWidth: 32,
+    outputHeight: 32,
+    color: '#f53',
+  })
+
+  const variants = store.snapshot().assets.filter((item) => item.kind === 'svg')
+  assert.equal(variants.length, 2)
+  assert.ok(variants.some((item) => item.name === 'location-pin_32x32_ff5533.svg'))
+  assert.ok(
+    variants.some((item) => /^location-pin_32x32_ff5533_[a-f0-9]{8}\.svg$/.test(item.name)),
+  )
 })

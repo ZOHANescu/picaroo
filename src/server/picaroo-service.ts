@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { transformWithEsbuild } from 'vite'
 import type { ImageSaveProgress } from '../shared'
 import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
+import { optimizeAsset } from '../assets/optimize'
 import { ProjectStore } from './store'
 import type { ProjectFramework } from '../integrations/project'
 
@@ -162,6 +163,19 @@ export class PicarooService {
         res.setHeader('Content-Type', 'image/webp')
         res.setHeader('X-Content-Type-Options', 'nosniff')
         res.end(thumbnail)
+        return true
+      }
+      if (pathname === `${prefix}/api/asset` && req.method === 'GET') {
+        const query = new URL(req.url!, 'http://localhost').searchParams
+        const { asset, data } = await this.store.index.readAsset(
+          query.get('id') ?? '',
+          query.get('version') ?? '',
+        )
+        if (asset.kind !== 'svg') throw new Error('Only SVG assets can be opened for editing.')
+        const validated = await optimizeAsset(data, 'svg')
+        res.setHeader('Content-Type', 'image/svg+xml')
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+        res.end(validated.data)
         return true
       }
       if (pathname === `${prefix}/api/import` && req.method === 'POST') {

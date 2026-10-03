@@ -430,6 +430,37 @@ if (window.parent !== window) {
             blob: null,
           }),
         )
+    } else if (message.type === 'asset') {
+      void fetch(
+        `/__picaroo/api/asset?id=${encodeURIComponent(message.assetId)}&version=${encodeURIComponent(message.version)}`,
+        {
+          headers: { 'x-picaroo-token': PICAROO_CONFIG.token },
+          signal: AbortSignal.timeout(15000),
+        },
+      )
+        .then(async (response) => {
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}))
+            throw new Error(body.error ?? 'The SVG could not be opened.')
+          }
+          send({
+            type: 'asset',
+            requestId: message.requestId,
+            assetId: message.assetId,
+            version: message.version,
+            blob: await response.blob(),
+          })
+        })
+        .catch((error: unknown) =>
+          send({
+            type: 'asset',
+            requestId: message.requestId,
+            assetId: message.assetId,
+            version: message.version,
+            blob: null,
+            error: error instanceof Error ? error.message : 'The SVG could not be opened.',
+          }),
+        )
     } else if (message.type === 'import' && message.file instanceof File) {
       void mutate(
         () =>
@@ -459,7 +490,7 @@ if (window.parent !== window) {
           : message.type === 'archive'
             ? 'Asset moved to Picaroo trash. Restore it from Change history.'
             : message.type === 'reprocess'
-              ? 'Crop saved as a new asset. Undo restores the previous source.'
+              ? 'Variant saved as a new asset. Undo restores the previous source.'
               : message.type === 'reuse'
                 ? 'Library image applied. Your source has been updated.'
                 : 'Image linked to the JSON field. Future replacements will edit that field.',

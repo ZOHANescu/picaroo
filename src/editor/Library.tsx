@@ -164,6 +164,7 @@ export function AssetLibrary({
               <strong>{asset.name}</strong>
               <span>
                 {asset.kind === 'svg' ? 'SVG' : 'PHOTO'} · {formatBytes(asset.bytes)}
+                {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ''}
                 {asset.color ? ` · ${asset.color.toUpperCase()}` : ''}
               </span>
               <small>
@@ -228,7 +229,9 @@ export function AssetDetails({
   targetLabel,
   canUse,
   busy,
+  opening = false,
   onUse,
+  onEdit,
   onArchive,
 }: {
   asset?: LibraryAsset
@@ -236,7 +239,9 @@ export function AssetDetails({
   targetLabel?: string
   canUse: boolean
   busy: boolean
+  opening?: boolean
   onUse: () => void
+  onEdit: () => void
   onArchive: () => void
 }) {
   if (!asset)
@@ -263,8 +268,13 @@ export function AssetDetails({
         {asset.color ? ` · ${asset.color.toUpperCase()}` : ''}
       </p>
       <button className="primary-action reuse-button" onClick={onUse} disabled={!canUse || busy}>
-        {busy ? 'Applying…' : 'Use this image'}
+        {busy ? 'Working…' : 'Use this image'}
       </button>
+      {asset.kind === 'svg' && (
+        <button className="secondary-action" onClick={onEdit} disabled={busy}>
+          {opening ? 'Opening SVG…' : 'Edit SVG variant'}
+        </button>
+      )}
       <p className="library-hint">
         {targetLabel
           ? canUse

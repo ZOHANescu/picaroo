@@ -26,6 +26,7 @@ const bytes = (value: number) => (value < 1024 ? `${value} B` : `${(value / 1024
 type PendingReview =
   | { kind: 'raster'; target: Target; file?: File; asset?: LibraryAsset }
   | { kind: 'svg'; action: 'replace'; target: Target; file: File }
+  | { kind: 'svg'; action: 'reprocess'; target: Target; file: File; asset: LibraryAsset }
   | { kind: 'svg'; action: 'import'; file: File }
 
 export function App() {
@@ -34,8 +35,15 @@ export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const snapshotRef = useRef<Snapshot | null>(null)
   const saveRequest = useRef<string | null>(null)
+  const assetRequest = useRef<{
+    requestId: string
+    asset: LibraryAsset
+    target?: Target
+  } | null>(null)
+  const selectVariantAfterSave = useRef<Set<string> | null>(null)
   const [saveError, setSaveError] = useState('')
   const [saveProgress, setSaveProgress] = useState<ImageSaveProgress | null>(null)
+  const [assetLoading, setAssetLoading] = useState('')
   const [pending, setPending] = useState<PendingReview | null>(null)
   const [targets, setTargets] = useState<VisibleTarget[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -115,6 +123,11 @@ export function App() {
       const message = event.data as BridgeEvent
       if (message.type === 'ready') {
         setBusy(false)
+        if (assetRequest.current) {
+          assetRequest.current = null
+          setAssetLoading('')
+          setNotice({ error: true, message: 'The preview reloaded before the SVG could be opened.' })
+        }
         reconnectThumbnails()
         if (saveRequest.current) {
           saveRequest.current = null
@@ -132,6 +145,16 @@ export function App() {
         setConnection('connected')
         setSnapshot(message.snapshot)
         snapshotRef.current = message.snapshot
+        if (selectVariantAfterSave.current) {
+          const previous = selectVariantAfterSave.current
+          const variant = message.snapshot.assets.find(
+            (asset) => asset.kind === 'svg' && !previous.has(asset.version),
+          )
+          if (variant) {
+            setLibraryAssetId(variant.id)
+            selectVariantAfterSave.current = null
+          }
+        }
         setTargets(message.visible)
         setRoute(message.path)
       } else if (message.type === 'mutation-result') {
@@ -143,6 +166,7 @@ export function App() {
           setSaveError('Image processing was cancelled. No source changes were applied.')
         else if (message.error) setSaveError(message.error)
         else setPending(null)
+        selectVariantAfterSave.current = null
       } else if (message.type === 'mutation-progress') {
         if (message.requestId === saveRequest.current)
           setSaveProgress((current) =>
@@ -156,7 +180,30 @@ export function App() {
       } else if (message.type === 'busy') setBusy(message.busy)
       else if (message.type === 'notice') setNotice(message)
       else if (message.type === 'thumbnail') receiveThumbnail(message)
-      else if (message.type === 'upload') {
+      else if (message.type === 'asset') {
+        const request = assetRequest.current
+        if (!request || request.requestId !== message.requestId) return
+        assetRequest.current = null
+        setAssetLoading('')
+        if (!message.blob) {
+          setNotice({ error: true, message: message.error ?? 'The SVG could not be opened.' })
+          return
+        }
+        const file = new File([message.blob], request.asset.name, { type: 'image/svg+xml' })
+        setSaveError('')
+        setSaveProgress(null)
+        setPending(
+          request.target
+            ? {
+                kind: 'svg',
+                action: 'reprocess',
+                target: request.target,
+                asset: request.asset,
+                file,
+              }
+            : { kind: 'svg', action: 'import', file },
+        )
+      } else if (message.type === 'upload') {
         const target = snapshotRef.current?.targets.find((item) => item.id === message.id)
         if (target) {
           setSelectedId(target.id)
@@ -197,6 +244,15 @@ export function App() {
     if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name))
       setPending({ kind: 'svg', action: 'import', file })
     else send({ type: 'import', file })
+  }
+
+  function editSvg(asset: LibraryAsset, target?: Target) {
+    if (busy || assetLoading || connection !== 'connected') return
+    const requestId = crypto.randomUUID()
+    assetRequest.current = { requestId, asset, target }
+    setAssetLoading(asset.id)
+    setNotice(null)
+    send({ type: 'asset', requestId, assetId: asset.id, version: asset.version })
   }
 
   return (
@@ -597,7 +653,11 @@ export function App() {
                   libraryAsset?.kind === selected.kind &&
                   connection === 'connected'
                 }
-                busy={busy}
+                busy={busy || !!assetLoading}
+                opening={assetLoading === libraryAsset?.id}
+                onEdit={() => {
+                  if (libraryAsset) editSvg(libraryAsset)
+                }}
                 onArchive={() => {
                   if (libraryAsset)
                     send({
@@ -697,6 +757,15 @@ export function App() {
                         }
                       >
                         Crop / optimize current image
+                      </button>
+                    )}
+                    {currentAsset?.kind === 'svg' && (
+                      <button
+                        className="secondary-action"
+                        disabled={busy || !!assetLoading || connection !== 'connected'}
+                        onClick={() => editSvg(currentAsset, selected)}
+                      >
+                        {assetLoading === currentAsset.id ? 'Opening SVG…' : 'Edit current SVG'}
                       </button>
                     )}
                     <button
@@ -869,7 +938,7 @@ export function App() {
       {pending?.kind === 'svg' && (
         <SvgReview
           file={pending.file}
-          label={pending.action === 'replace' ? pending.target.label : pending.file.name}
+          label={pending.action === 'import' ? pending.file.name : pending.target.label}
           busy={busy}
           progress={saveProgress}
           saveError={
@@ -894,7 +963,11 @@ export function App() {
             const requestId = crypto.randomUUID()
             saveRequest.current = requestId
             setSaveError('')
-            setSaveProgress({ stage: 'uploading', percent: 2 })
+            setSaveProgress(
+              pending.action === 'reprocess'
+                ? { stage: 'preparing', percent: 25 }
+                : { stage: 'uploading', percent: 2 },
+            )
             setBusy(true)
             if (pending.action === 'replace')
               send({
@@ -905,7 +978,22 @@ export function App() {
                 file: pending.file,
                 options,
               })
-            else send({ type: 'import', requestId, file: pending.file, options })
+            else if (pending.action === 'reprocess')
+              send({
+                type: 'reprocess',
+                requestId,
+                id: pending.target.id,
+                version: pending.target.version,
+                assetId: pending.asset.id,
+                assetVersion: pending.asset.version,
+                options,
+              })
+            else {
+              selectVariantAfterSave.current = new Set(
+                snapshotRef.current?.assets.map((asset) => asset.version) ?? [],
+              )
+              send({ type: 'import', requestId, file: pending.file, options })
+            }
           }}
         />
       )}

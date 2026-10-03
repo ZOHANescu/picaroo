@@ -96,6 +96,7 @@ export type EditorCommand =
     }
   | { type: 'undo'; id: string }
   | { type: 'thumbnail'; assetId: string; version: string }
+  | { type: 'asset'; requestId: string; assetId: string; version: string }
   | { type: 'reuse'; id: string; version: string; assetId: string; assetVersion: string }
   | {
       type: 'import'
@@ -126,6 +127,14 @@ export type BridgeEvent =
   | { type: 'mutation-progress'; requestId: string; progress: ImageSaveProgress }
   | { type: 'notice'; message: string; error?: boolean }
   | { type: 'thumbnail'; assetId: string; version: string; blob: Blob | null }
+  | {
+      type: 'asset'
+      requestId: string
+      assetId: string
+      version: string
+      blob: Blob | null
+      error?: string
+    }
   | { type: 'upload'; id: string; version: string; file: File }
 
 export interface OptimizationProfile {
