@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { transformWithEsbuild } from 'vite'
 import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { ProjectStore } from './store'
+import type { ProjectFramework } from '../integrations/project'
 
 const prefix = '/__picaroo'
 
@@ -12,6 +13,7 @@ export interface PicarooServiceOptions {
   root: string
   editorOrigin: string
   framework: string
+  integration?: ProjectFramework
   components?: string[]
   aliases?: { find: string; replacement: string }[]
   assetDirectory?: string
@@ -31,6 +33,7 @@ export class PicarooService {
       options.aliases ?? [],
       options.framework,
       options.assetDirectory,
+      options.integration,
     )
   }
 

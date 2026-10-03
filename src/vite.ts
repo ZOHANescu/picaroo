@@ -2,6 +2,7 @@ import type { Plugin, ViteDevServer } from 'vite'
 import path from 'node:path'
 import { PicarooService } from './server/picaroo-service'
 import { instrument } from './source-edits/react'
+import { reactProjectIntegration } from './integrations/project'
 
 export interface PicarooOptions {
   /** Exact origin of the Picaroo editor. Both servers must run on the same machine. */
@@ -42,7 +43,8 @@ export function picaroo(options: PicarooOptions = {}): Plugin {
         root,
         aliases,
         components: options.components,
-        framework: 'React + Vite',
+        framework: reactProjectIntegration().label,
+        integration: reactProjectIntegration().id,
         editorOrigin: options.editorOrigin ?? 'http://localhost:4310',
       })
       await service.initialize()

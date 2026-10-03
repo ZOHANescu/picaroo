@@ -21,6 +21,8 @@ import { replaceJsonField } from '../source-edits/json'
 import { hash } from '../hash'
 import { analyzeAngular, replaceAngularReference } from '../source-edits/angular'
 import type { AngularComponentSource } from '../source-edits/angular'
+import { analyzeHtml, replaceHtmlReference } from '../source-edits/html'
+import type { ProjectFramework } from '../integrations/project'
 
 interface JournalEntry extends Change {
   before: string
@@ -45,6 +47,7 @@ export class ProjectStore {
     aliases: { find: string; replacement: string }[] = [],
     private framework = 'React + Vite',
     private assetDirectory = 'public/picaroo',
+    private integration: ProjectFramework = 'react',
   ) {
     this.index = new ProjectIndex(
       root,
@@ -99,7 +102,7 @@ export class ProjectStore {
     await this.index.refresh()
     this.targets.clear()
     const angularComponents = new Map<string, AngularComponentSource>()
-    if (this.framework.startsWith('Angular')) {
+    if (this.integration === 'angular') {
       for (const [file, source] of this.index.sources) {
         if (!file.endsWith('.ts')) continue
         for (const match of source.matchAll(/\btemplateUrl\s*:\s*(["'])([^"']+)\1/g)) {
@@ -114,7 +117,7 @@ export class ProjectStore {
       try {
         if (/\.[jt]sx$/.test(file)) this.register(path.join(this.root, file), source)
         else if (
-          this.framework.startsWith('Angular') &&
+          this.integration === 'angular' &&
           (file.endsWith('.html') || file.endsWith('.ts'))
         )
           for (const target of analyzeAngular(
@@ -123,6 +126,9 @@ export class ProjectStore {
             this.assetDirectory,
             file.endsWith('.html') ? angularComponents.get(file) : undefined,
           ))
+            this.targets.set(target.id, target)
+        else if (this.integration === 'html' && file.endsWith('.html'))
+          for (const target of analyzeHtml(source, file, this.assetDirectory))
             this.targets.set(target.id, target)
         else if (file.endsWith('.css'))
           for (const target of analyzeCss(source, file)) this.targets.set(target.id, target)
@@ -306,10 +312,13 @@ export class ProjectStore {
           ? replaceVisual(source, target, asset, optimized.data, optimized.width, publicUrl)
           : target.angular
             ? replaceAngularReference(source, target, publicUrl)
+            : target.html
+              ? replaceHtmlReference(source, target, publicUrl)
             : replaceReference(source, target, asset)
     if (!document) {
       if (target.visual?.type === 'css') analyzeCss(after, file)
       else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+      else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
       else analyze(after, target.file, this.components, this.index.documents)
     }
     await this.saveAsset(asset, optimized.data)
@@ -550,9 +559,12 @@ export class ProjectStore {
           ? replaceJsonField(document, target.data.pointer, this.publicUrl(destination))
           : target.angular
             ? replaceAngularReference(source, target, this.publicUrl(destination))
+            : target.html
+              ? replaceHtmlReference(source, target, this.publicUrl(destination))
             : reuseReference(source, target, destination)
       if (!document) {
         if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+        else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
         else analyze(after, target.file, this.components, this.index.documents)
       }
       await this.index.readAsset(assetId, assetVersion)

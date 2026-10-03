@@ -33,6 +33,9 @@ export interface SourceTarget extends Target {
     quote: '"' | "'" | '`'
     sourceLiteral?: boolean
   }
+  html?: {
+    quote: '"' | "'"
+  }
   runtimeMatch?: boolean
   assetDirectory?: string
 }
