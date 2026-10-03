@@ -8,7 +8,7 @@ import { hash } from '../hash'
 import { dataFields, readJson } from '../source-edits/json'
 import type { JsonDocument } from '../source-edits/json'
 import type { AssetUsage, DataField, LibraryAsset } from '../shared'
-import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
+import { MAX_IMAGE_PIXELS, MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { optimizeAsset } from '../assets/optimize'
 
 const imageExtension = /\.(png|jpe?g|webp|avif|svg)$/i
@@ -89,7 +89,7 @@ export class ProjectIndex {
             if (cached?.signature === signature) asset = { ...cached.asset, usages: [] }
             else {
               const buffer = await readFile(absolute)
-              const metadata = await sharp(buffer, { limitInputPixels: 40_000_000 })
+              const metadata = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS })
                 .metadata()
                 .catch(() => undefined)
               asset = {
@@ -263,7 +263,7 @@ export class ProjectIndex {
     if (existing) return existing
     // SVG previews are validated then rasterized; no active SVG reaches the editor document.
     const input = asset.kind === 'svg' ? (await optimizeAsset(data, 'svg')).data : data
-    const result = await sharp(input, { limitInputPixels: 40_000_000 })
+    const result = await sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS })
       .rotate()
       .resize({ width: 320, height: 220, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 75 })

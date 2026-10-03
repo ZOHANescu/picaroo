@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ImageOptions, OptimizationProfile } from '../shared'
-import { cropBounds } from '../shared'
+import type { ImageOptions, ImageSaveProgress, OptimizationProfile } from '../shared'
+import { MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, cropBounds } from '../shared'
 import './image-tools.css'
 
 function ProfileFields({
   profile,
   onChange,
+  showLimits = true,
 }: {
   profile: OptimizationProfile
   onChange: (profile: OptimizationProfile) => void
+  showLimits?: boolean
 }) {
   return (
     <div className="profile-fields">
@@ -38,32 +40,92 @@ function ProfileFields({
           onChange={(event) => onChange({ ...profile, quality: Number(event.target.value) })}
         />
       </label>
-      <label>
-        Maximum width
-        <input
-          type="number"
-          required
-          min="16"
-          max="4096"
-          value={profile.maxWidth}
-          onChange={(event) => onChange({ ...profile, maxWidth: Number(event.target.value) })}
-        />
-      </label>
-      <label>
-        Maximum height
-        <input
-          type="number"
-          required
-          min="16"
-          max="4096"
-          value={profile.maxHeight}
-          onChange={(event) => onChange({ ...profile, maxHeight: Number(event.target.value) })}
-        />
-      </label>
-      <p>
-        No upscaling. JPEG places transparency on white. A picture source with a declared format
-        keeps that format.
-      </p>
+      {showLimits && (
+        <>
+          <label>
+            Maximum width
+            <input
+              type="number"
+              required
+              min="16"
+              max="4096"
+              value={profile.maxWidth}
+              onChange={(event) => onChange({ ...profile, maxWidth: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            Maximum height
+            <input
+              type="number"
+              required
+              min="16"
+              max="4096"
+              value={profile.maxHeight}
+              onChange={(event) => onChange({ ...profile, maxHeight: Number(event.target.value) })}
+            />
+          </label>
+          <p>
+            No upscaling. JPEG places transparency on white. A picture source with a declared format
+            keeps that format.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+const progressSteps = [
+  { stage: 'uploading', label: 'Upload' },
+  { stage: 'preparing', label: 'Prepare' },
+  { stage: 'optimizing', label: 'Resize & optimize' },
+  { stage: 'saving', label: 'Save to project' },
+  { stage: 'refreshing', label: 'Refresh preview' },
+] as const
+
+function SaveProgress({ progress }: { progress: ImageSaveProgress }) {
+  const matched = progressSteps.findIndex((step) => step.stage === progress.stage)
+  const current =
+    matched >= 0
+      ? matched
+      : progress.percent >= 96
+        ? 4
+        : progress.percent >= 76
+          ? 3
+          : progress.percent >= 42
+            ? 2
+            : progress.percent >= 30
+              ? 1
+              : 0
+  const currentLabel =
+    progress.stage === 'cancelling' ? 'Stopping safely…' : `${progressSteps[current].label}…`
+  return (
+    <div className="save-progress" role="status" aria-live="polite">
+      <div className="save-progress-heading">
+        <strong>{currentLabel}</strong>
+        <span>{Math.round(progress.percent)}%</span>
+      </div>
+      <progress max="100" value={progress.percent} aria-label="Image save progress" />
+      <ol>
+        {progressSteps.map((step, index) => (
+          <li
+            key={step.stage}
+            className={
+              progress.stage === 'cancelling'
+                ? index <= current
+                  ? 'complete'
+                  : ''
+                : index < current
+                  ? 'complete'
+                  : index === current
+                    ? 'active'
+                    : ''
+            }
+          >
+            <span>{index < current ? '✓' : index + 1}</span>
+            {step.label}
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
@@ -117,8 +179,10 @@ export function ImageReview({
   initial,
   label,
   busy,
+  progress,
   saveError,
   connected,
+  sourceDimensions,
   onCancel,
   onApply,
 }: {
@@ -127,8 +191,10 @@ export function ImageReview({
   initial: OptimizationProfile
   label: string
   busy: boolean
+  progress: ImageSaveProgress | null
   saveError: string
   connected: boolean
+  sourceDimensions?: { width: number; height: number }
   onCancel: () => void
   onApply: (options: ImageOptions) => void
 }) {
@@ -138,6 +204,10 @@ export function ImageReview({
   const [focusX, setFocusX] = useState(0.5)
   const [focusY, setFocusY] = useState(0.5)
   const [dimensions, setDimensions] = useState({ width: 1, height: 1 })
+  const [sourceSize, setSourceSize] = useState(sourceDimensions ?? { width: 1, height: 1 })
+  const [outputSize, setOutputSize] = useState(
+    sourceDimensions ?? { width: 0, height: 0 },
+  )
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
   const dialog = useRef<HTMLElement>(null)
@@ -155,6 +225,14 @@ export function ImageReview({
     return () => URL.revokeObjectURL(objectUrl)
   }, [file])
   const bounds = cropBounds(dimensions.width, dimensions.height, ratio, focusX, focusY)
+  const outputValid =
+    Number.isInteger(outputSize.width) &&
+    Number.isInteger(outputSize.height) &&
+    outputSize.width >= 16 &&
+    outputSize.height >= 16 &&
+    outputSize.width <= MAX_IMAGE_DIMENSION &&
+    outputSize.height <= MAX_IMAGE_DIMENSION &&
+    outputSize.width * outputSize.height <= MAX_IMAGE_PIXELS
   return (
     <div className="image-review-backdrop">
       <section
@@ -191,7 +269,15 @@ export function ImageReview({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            if (!busy && loaded && connected) onApply({ profile, ratio, focusX, focusY })
+            if (!busy && loaded && connected && outputValid)
+              onApply({
+                profile,
+                ratio,
+                focusX,
+                focusY,
+                outputWidth: outputSize.width,
+                outputHeight: outputSize.height,
+              })
           }}
         >
           <header>
@@ -201,9 +287,9 @@ export function ImageReview({
             </div>
             <button
               type="button"
-              aria-label="Cancel image editing"
+              aria-label={busy ? 'Cancel image processing' : 'Cancel image editing'}
               onClick={onCancel}
-              disabled={busy}
+              disabled={progress?.stage === 'cancelling'}
             >
               ×
             </button>
@@ -277,10 +363,18 @@ export function ImageReview({
                     src={url ?? preview!}
                     alt="Image crop preview"
                     onLoad={(event) => {
-                      setDimensions({
+                      const natural = {
                         width: event.currentTarget.naturalWidth,
                         height: event.currentTarget.naturalHeight,
+                      }
+                      setDimensions({
+                        width: natural.width,
+                        height: natural.height,
                       })
+                      if (!sourceDimensions) {
+                        setSourceSize(natural)
+                        setOutputSize(natural)
+                      }
                       setLoaded(true)
                       setError('')
                     }}
@@ -314,7 +408,15 @@ export function ImageReview({
               )}
               <label className="crop-control">
                 Crop shape
-                <select value={ratio} onChange={(event) => setRatio(Number(event.target.value))}>
+                <select
+                  value={ratio}
+                  onChange={(event) => {
+                    const nextRatio = Number(event.target.value)
+                    setRatio(nextRatio)
+                    const next = cropBounds(sourceSize.width, sourceSize.height, nextRatio)
+                    setOutputSize({ width: next.width, height: next.height })
+                  }}
+                >
                   <option value="0">Original proportions</option>
                   <option value="1">Square · 1:1</option>
                   <option value={4 / 3}>Landscape · 4:3</option>
@@ -348,13 +450,63 @@ export function ImageReview({
                 />
               </label>
             </div>
-            <ProfileFields profile={profile} onChange={setProfile} />
+            <div className="output-settings">
+              <ProfileFields profile={profile} onChange={setProfile} showLimits={false} />
+              <div className="output-dimensions">
+                <label>
+                  Output width
+                  <span className="dimension-input">
+                    <input
+                      type="number"
+                      required
+                      min="16"
+                      max={MAX_IMAGE_DIMENSION}
+                      value={outputSize.width || ''}
+                      onChange={(event) =>
+                        setOutputSize({ ...outputSize, width: Number(event.target.value) })
+                      }
+                    />
+                    <span>px</span>
+                  </span>
+                </label>
+                <label>
+                  Output height
+                  <span className="dimension-input">
+                    <input
+                      type="number"
+                      required
+                      min="16"
+                      max={MAX_IMAGE_DIMENSION}
+                      value={outputSize.height || ''}
+                      onChange={(event) =>
+                        setOutputSize({ ...outputSize, height: Number(event.target.value) })
+                      }
+                    />
+                    <span>px</span>
+                  </span>
+                </label>
+                <p className={outputValid ? '' : 'dimension-error'}>
+                  Original: {sourceSize.width} × {sourceSize.height} px. The saved image will be
+                  exactly {outputSize.width || '—'} × {outputSize.height || '—'} px.
+                  {!outputValid && ` Keep the output at or below ${MAX_IMAGE_PIXELS / 1_000_000} MP.`}
+                </p>
+              </div>
+            </div>
           </fieldset>
+          {progress && <SaveProgress progress={progress} />}
           <footer>
-            <button type="button" className="secondary-action" onClick={onCancel} disabled={busy}>
-              Cancel
+            <button
+              type="button"
+              className="secondary-action cancel-action"
+              onClick={onCancel}
+              disabled={progress?.stage === 'cancelling'}
+            >
+              {progress?.stage === 'cancelling' ? 'Cancelling…' : busy ? 'Cancel process' : 'Cancel'}
             </button>
-            <button className="primary-action" disabled={busy || !loaded || !connected}>
+            <button
+              className="primary-action"
+              disabled={busy || !loaded || !connected || !outputValid}
+            >
               {busy ? 'Saving…' : 'Save image'}
             </button>
           </footer>

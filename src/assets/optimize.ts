@@ -1,7 +1,29 @@
 import sharp from 'sharp'
 import { optimize } from 'svgo'
 import type { AssetKind, ImageOptions, OptimizationProfile } from '../shared'
-import { DEFAULT_PROFILE, MAX_UPLOAD, MAX_UPLOAD_MB, cropBounds } from '../shared'
+import {
+  DEFAULT_PROFILE,
+  MAX_IMAGE_DIMENSION,
+  MAX_IMAGE_PIXELS,
+  MAX_UPLOAD,
+  MAX_UPLOAD_MB,
+  cropBounds,
+} from '../shared'
+
+export interface OptimizeControl {
+  signal?: AbortSignal
+  onProgress?: (percent: number) => void
+}
+
+function cancellationError() {
+  const error = new Error('Image processing was cancelled.')
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) throw cancellationError()
+}
 
 export function validateProfile(value: OptimizationProfile): OptimizationProfile {
   if (
@@ -28,9 +50,15 @@ export function validateProfile(value: OptimizationProfile): OptimizationProfile
   }
 }
 
-export async function optimizeAsset(input: Buffer, kind: AssetKind, options: ImageOptions = {}) {
+export async function optimizeAsset(
+  input: Buffer,
+  kind: AssetKind,
+  options: ImageOptions = {},
+  control: OptimizeControl = {},
+) {
+  throwIfCancelled(control.signal)
   const profile = validateProfile(options.profile ?? DEFAULT_PROFILE)
-  const { ratio = 0, focusX = 0.5, focusY = 0.5 } = options
+  const { ratio = 0, focusX = 0.5, focusY = 0.5, outputWidth, outputHeight } = options
   if (
     !Number.isFinite(ratio) ||
     ratio < 0 ||
@@ -44,9 +72,24 @@ export async function optimizeAsset(input: Buffer, kind: AssetKind, options: Ima
     focusY > 1
   )
     throw new Error('Invalid crop or focal point.')
+  const hasExactSize = outputWidth !== undefined || outputHeight !== undefined
+  if (
+    hasExactSize &&
+    (!Number.isInteger(outputWidth) ||
+      !Number.isInteger(outputHeight) ||
+      outputWidth! < 16 ||
+      outputHeight! < 16 ||
+      outputWidth! > MAX_IMAGE_DIMENSION ||
+      outputHeight! > MAX_IMAGE_DIMENSION ||
+      outputWidth! * outputHeight! > MAX_IMAGE_PIXELS)
+  )
+    throw new Error(
+      `Choose output dimensions of at least 16 px and no more than ${MAX_IMAGE_PIXELS / 1_000_000} megapixels.`,
+    )
   if (!input.length || input.length > MAX_UPLOAD)
     throw new Error(`Choose a file up to ${MAX_UPLOAD_MB} MB.`)
   if (kind === 'svg') {
+    throwIfCancelled(control.signal)
     const text = input
       .toString('utf8')
       .replace(/^\uFEFF/, '')
@@ -113,10 +156,20 @@ export async function optimizeAsset(input: Buffer, kind: AssetKind, options: Ima
     return { data: Buffer.from(result.data), extension: 'svg', width: undefined, height: undefined }
   }
   // Decode by content; extensions and client MIME types are never trusted.
-  const decoder = sharp(input, { limitInputPixels: 40_000_000, animated: true, failOn: 'warning' })
-  const metadata = await decoder.metadata().catch(() => {
+  const decoder = sharp(input, {
+    limitInputPixels: MAX_IMAGE_PIXELS,
+    animated: true,
+    failOn: 'warning',
+  })
+  const metadata = await decoder.metadata().catch((error: unknown) => {
+    if (error instanceof Error && /pixel limit/i.test(error.message))
+      throw new Error(
+        `This image exceeds the ${MAX_IMAGE_PIXELS / 1_000_000} megapixel resolution limit.`,
+      )
     throw new Error('Choose a valid JPEG, PNG, WebP, or AVIF image.')
   })
+  throwIfCancelled(control.signal)
+  control.onProgress?.(48)
   if (!metadata.format || !['jpeg', 'png', 'webp', 'avif', 'heif'].includes(metadata.format)) {
     throw new Error('This is a photo slot. Choose JPEG, PNG, WebP, or AVIF; SVG is not accepted.')
   }
@@ -125,15 +178,15 @@ export async function optimizeAsset(input: Buffer, kind: AssetKind, options: Ima
   const rotated = (metadata.orientation ?? 1) >= 5
   const width = (rotated ? metadata.height : metadata.width)!
   const height = (rotated ? metadata.width : metadata.height)!
-  let pipeline = decoder
-    .rotate()
-    .extract(cropBounds(width, height, ratio, focusX, focusY))
-    .resize({
-      width: profile.maxWidth,
-      height: profile.maxHeight,
-      fit: 'inside',
-      withoutEnlargement: true,
-    })
+  let pipeline = decoder.rotate().extract(cropBounds(width, height, ratio, focusX, focusY))
+  pipeline = hasExactSize
+    ? pipeline.resize({ width: outputWidth, height: outputHeight, fit: 'fill' })
+    : pipeline.resize({
+        width: profile.maxWidth,
+        height: profile.maxHeight,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
   if (profile.format === 'jpeg')
     pipeline = pipeline
       .flatten({ background: '#ffffff' })
@@ -142,7 +195,15 @@ export async function optimizeAsset(input: Buffer, kind: AssetKind, options: Ima
   else if (profile.format === 'avif')
     pipeline = pipeline.avif({ quality: profile.quality, effort: 4 })
   else pipeline = pipeline.webp({ quality: profile.quality, effort: 4 })
-  const { data, info } = await pipeline.toBuffer({ resolveWithObject: true })
+  throwIfCancelled(control.signal)
+  control.onProgress?.(55)
+  const cancelPipeline = () => pipeline.destroy(cancellationError())
+  control.signal?.addEventListener('abort', cancelPipeline, { once: true })
+  const { data, info } = await pipeline
+    .toBuffer({ resolveWithObject: true })
+    .finally(() => control.signal?.removeEventListener('abort', cancelPipeline))
+  throwIfCancelled(control.signal)
+  control.onProgress?.(68)
   return {
     data,
     extension: profile.format === 'jpeg' ? 'jpg' : profile.format,

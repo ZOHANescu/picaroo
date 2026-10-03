@@ -4,3 +4,4 @@ dist/
 .reference/
 .vite/
 *.log
+.idea/

@@ -6,6 +6,7 @@ import type {
   VisibleTarget,
   Target,
   LibraryAsset,
+  ImageSaveProgress,
 } from '../shared'
 import { CHANNEL, DEFAULT_PROFILE, MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { Icon } from './Icon'
@@ -29,6 +30,7 @@ export function App() {
   const snapshotRef = useRef<Snapshot | null>(null)
   const saveRequest = useRef<string | null>(null)
   const [saveError, setSaveError] = useState('')
+  const [saveProgress, setSaveProgress] = useState<ImageSaveProgress | null>(null)
   const [pending, setPending] = useState<{
     target: Target
     file?: File
@@ -67,6 +69,7 @@ export function App() {
   const prepareUpload = useCallback(
     (target: Target, file: File) => {
       setSaveError('')
+      setSaveProgress(null)
       if (file.size > MAX_UPLOAD) {
         setNotice({ error: true, message: `Choose a file up to ${MAX_UPLOAD_MB} MB.` })
         return
@@ -114,6 +117,7 @@ export function App() {
         reconnectThumbnails()
         if (saveRequest.current) {
           saveRequest.current = null
+          setSaveProgress(null)
           setSaveError(
             'The preview reloaded while saving. Check Change history before trying again; your image and crop settings are still here.',
           )
@@ -132,8 +136,19 @@ export function App() {
       } else if (message.type === 'mutation-result') {
         if (message.requestId !== saveRequest.current) return
         saveRequest.current = null
-        if (message.error) setSaveError(message.error)
+        setBusy(false)
+        setSaveProgress(null)
+        if (message.cancelled)
+          setSaveError('Image processing was cancelled. No source changes were applied.')
+        else if (message.error) setSaveError(message.error)
         else setPending(null)
+      } else if (message.type === 'mutation-progress') {
+        if (message.requestId === saveRequest.current)
+          setSaveProgress((current) =>
+            message.progress.stage === 'cancelling'
+              ? { ...message.progress, percent: current?.percent ?? message.progress.percent }
+              : message.progress,
+          )
       } else if (message.type === 'selected') {
         setSelectedId(message.id)
         setPanel('images')
@@ -514,7 +529,8 @@ export function App() {
                     <h3>Let’s connect your app.</h3>
                     <p>
                       Start your app normally, then keep its local development server running.
-                      Picaroo connects through its own preview—no framework plugin is required.
+                      Picaroo connects through its own preview. React + Vite projects should keep
+                      the development-only Picaroo adapter enabled for source instrumentation.
                     </p>
                     <p>
                       Target: {targetUrl}
@@ -779,6 +795,12 @@ export function App() {
           initial={snapshot?.settings ?? DEFAULT_PROFILE}
           label={pending.target.label}
           busy={busy}
+          progress={saveProgress}
+          sourceDimensions={
+            pending.asset?.width && pending.asset?.height
+              ? { width: pending.asset.width, height: pending.asset.height }
+              : undefined
+          }
           saveError={
             saveError ||
             (connection !== 'connected'
@@ -787,14 +809,25 @@ export function App() {
           }
           connected={connection === 'connected'}
           onCancel={() => {
+            if (saveRequest.current) {
+              send({ type: 'cancel', requestId: saveRequest.current })
+              setSaveProgress({ stage: 'cancelling', percent: saveProgress?.percent ?? 0 })
+              return
+            }
             setPending(null)
             setSaveError('')
+            setSaveProgress(null)
           }}
           onApply={(options) => {
             if (busy || saveRequest.current || connection !== 'connected') return
             const requestId = crypto.randomUUID()
             saveRequest.current = requestId
             setSaveError('')
+            setSaveProgress(
+              pending.file
+                ? { stage: 'uploading', percent: 2 }
+                : { stage: 'preparing', percent: 25 },
+            )
             setBusy(true)
             if (pending.file)
               send({
