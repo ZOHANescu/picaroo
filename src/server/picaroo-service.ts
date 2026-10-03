@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { transformWithEsbuild } from 'vite'
+import type { ImageSaveProgress } from '../shared'
 import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { ProjectStore } from './store'
 import type { ProjectFramework } from '../integrations/project'
@@ -24,6 +25,10 @@ export class PicarooService {
   private readonly token = randomBytes(32).toString('hex')
   private readonly editorOrigin: string
   private overlay = ''
+  private readonly operations = new Map<
+    string,
+    { controller: AbortController; progress: ImageSaveProgress }
+  >()
 
   constructor(options: PicarooServiceOptions) {
     this.editorOrigin = new URL(options.editorOrigin).origin
@@ -87,6 +92,25 @@ export class PicarooService {
     try {
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host)
         throw new Error('Invalid request origin.')
+      if (pathname === `${prefix}/api/progress` && req.method === 'GET') {
+        const id = new URL(req.url!, 'http://localhost').searchParams.get('id') ?? ''
+        const operation = this.operations.get(id)
+        if (!operation) return respond(res, 404, { error: 'Image operation not found.' })
+        return respond(res, 200, operation.progress)
+      }
+      if (pathname === `${prefix}/api/cancel` && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 1024)).toString())
+        const operation =
+          typeof body.requestId === 'string' ? this.operations.get(body.requestId) : undefined
+        if (operation) {
+          operation.progress = {
+            stage: 'cancelling',
+            percent: operation.progress.percent,
+          }
+          operation.controller.abort()
+        }
+        return respond(res, 200, { cancelled: !!operation })
+      }
       if (pathname === `${prefix}/api/snapshot` && req.method === 'GET')
         return respond(res, 200, this.store.snapshot())
       if (
@@ -104,17 +128,30 @@ export class PicarooService {
           return respond(res, 200, await this.store.archive(body.assetId, body.version))
         if (typeof body.id !== 'string' || typeof body.assetVersion !== 'string' || !body.options)
           throw new Error('Missing image or crop options.')
-        return respond(
-          res,
-          200,
-          await this.store.reprocess(
-            body.id,
-            body.version,
-            body.assetId,
-            body.assetVersion,
-            body.options,
-          ),
-        )
+        const operation = this.beginOperation(body.requestId, 'preparing', 25)
+        try {
+          return respond(
+            res,
+            200,
+            await this.store.reprocess(
+              body.id,
+              body.version,
+              body.assetId,
+              body.assetVersion,
+              body.options,
+              operation
+                ? {
+                    signal: operation.controller.signal,
+                    onProgress: (stage, percent) => {
+                      operation.progress = { stage, percent }
+                    },
+                  }
+                : undefined,
+            ),
+          )
+        } finally {
+          this.finishOperation(body.requestId, operation)
+        }
       }
       if (pathname === `${prefix}/api/thumbnail` && req.method === 'GET') {
         const query = new URL(req.url!, 'http://localhost').searchParams
@@ -174,14 +211,35 @@ export class PicarooService {
         const rawName = req.headers['x-picaroo-name']
         if (rawName && (typeof rawName !== 'string' || rawName.length > 1024))
           throw new Error('Invalid image filename.')
-        const result = await this.store.replace(
-          id,
-          version,
-          await readBody(req, MAX_UPLOAD),
-          typeof rawOptions === 'string' ? JSON.parse(rawOptions) : undefined,
-          typeof rawName === 'string' ? decodeURIComponent(rawName) : undefined,
-        )
-        return respond(res, 200, result)
+        const requestId = req.headers['x-picaroo-request']
+        const operation = this.beginOperation(requestId, 'uploading', 3)
+        try {
+          const result = await this.store.replace(
+            id,
+            version,
+            await readBody(
+              req,
+              MAX_UPLOAD,
+              operation?.controller.signal,
+              (percent) => {
+                if (operation) operation.progress = { stage: 'uploading', percent }
+              },
+            ),
+            typeof rawOptions === 'string' ? JSON.parse(rawOptions) : undefined,
+            typeof rawName === 'string' ? decodeURIComponent(rawName) : undefined,
+            operation
+              ? {
+                  signal: operation.controller.signal,
+                  onProgress: (stage, percent) => {
+                    operation.progress = { stage, percent }
+                  },
+                }
+              : undefined,
+          )
+          return respond(res, 200, result)
+        } finally {
+          this.finishOperation(requestId, operation)
+        }
       }
       if (pathname === `${prefix}/api/undo` && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 1024)).toString())
@@ -190,11 +248,36 @@ export class PicarooService {
       }
       respond(res, 404, { error: 'Unknown Picaroo endpoint.' })
     } catch (error) {
-      respond(res, 400, {
+      respond(res, error instanceof Error && error.name === 'AbortError' ? 499 : 400, {
         error: error instanceof Error ? error.message : 'Picaroo could not save the change.',
+        cancelled: error instanceof Error && error.name === 'AbortError',
       })
     }
     return true
+  }
+
+  private beginOperation(
+    requestId: unknown,
+    stage: ImageSaveProgress['stage'],
+    percent: number,
+  ) {
+    if (requestId === undefined) return undefined
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(requestId))
+      throw new Error('Invalid image request ID.')
+    if (this.operations.has(requestId)) throw new Error('That image request is already running.')
+    const operation = { controller: new AbortController(), progress: { stage, percent } }
+    this.operations.set(requestId, operation)
+    return operation
+  }
+
+  private finishOperation(
+    requestId: unknown,
+    operation:
+      | { controller: AbortController; progress: ImageSaveProgress }
+      | undefined,
+  ) {
+    if (typeof requestId === 'string' && this.operations.get(requestId) === operation)
+      this.operations.delete(requestId)
   }
 }
 
@@ -205,10 +288,20 @@ function respond(res: ServerResponse, status: number, body: unknown) {
   return true
 }
 
-async function readBody(req: IncomingMessage, maximum: number) {
+async function readBody(
+  req: IncomingMessage,
+  maximum: number,
+  signal?: AbortSignal,
+  onProgress?: (percent: number) => void,
+) {
   const chunks: Buffer[] = []
   let length = 0
   for await (const chunk of req) {
+    if (signal?.aborted) {
+      const error = new Error('Image processing was cancelled.')
+      error.name = 'AbortError'
+      throw error
+    }
     length += chunk.length
     if (length > maximum) {
       const message =
@@ -218,6 +311,14 @@ async function readBody(req: IncomingMessage, maximum: number) {
       throw new Error(message)
     }
     chunks.push(Buffer.from(chunk))
+    const total = Number(req.headers['content-length'])
+    if (Number.isFinite(total) && total > 0)
+      onProgress?.(Math.min(25, 3 + (length / total) * 22))
+  }
+  if (signal?.aborted) {
+    const error = new Error('Image processing was cancelled.')
+    error.name = 'AbortError'
+    throw error
   }
   return Buffer.concat(chunks)
 }

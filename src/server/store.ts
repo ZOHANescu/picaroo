@@ -12,6 +12,7 @@ import type {
   ImageOptions,
   OptimizationProfile,
   LibraryAsset,
+  ImageSaveStage,
 } from '../shared'
 import { DEFAULT_PROFILE } from '../shared'
 import { analyzeCss, replaceVisual } from '../source-edits/visual'
@@ -31,6 +32,18 @@ interface JournalEntry extends Change {
   assetVersion?: string
 }
 const slash = (value: string) => value.split(path.sep).join('/')
+
+export interface MutationControl {
+  signal?: AbortSignal
+  onProgress?: (stage: ImageSaveStage, percent: number) => void
+}
+
+function throwIfCancelled(signal?: AbortSignal) {
+  if (!signal?.aborted) return
+  const error = new Error('Image processing was cancelled.')
+  error.name = 'AbortError'
+  throw error
+}
 
 export class ProjectStore {
   private targets = new Map<string, SourceTarget>()
@@ -280,8 +293,12 @@ export class ProjectStore {
     input: Buffer,
     options: ImageOptions = {},
     originalName = 'image',
+    control: MutationControl = {},
   ) {
-    return this.serialize(() => this.replaceInput(id, version, input, options, originalName))
+    return this.serialize(() => {
+      throwIfCancelled(control.signal)
+      return this.replaceInput(id, version, input, options, originalName, control)
+    })
   }
 
   private async replaceInput(
@@ -290,14 +307,23 @@ export class ProjectStore {
     input: Buffer,
     options: ImageOptions = {},
     originalName = 'image',
+    control: MutationControl = {},
   ) {
+    throwIfCancelled(control.signal)
+    control.onProgress?.('preparing', 34)
     const { target, source } = await this.resolveTarget(id, version)
+    throwIfCancelled(control.signal)
     if (!target.editable) throw new Error('This source needs a mapping before it can be edited.')
     const profile = { ...(options.profile ?? this.settings) }
     if (target.visual?.format) profile.format = target.visual.format
     if (target.descriptor?.endsWith('w'))
       profile.maxWidth = Math.min(profile.maxWidth, parseInt(target.descriptor, 10))
-    const optimized = await optimizeAsset(input, target.kind, { ...options, profile })
+    control.onProgress?.('optimizing', 42)
+    const optimized = await optimizeAsset(input, target.kind, { ...options, profile }, {
+      signal: control.signal,
+      onProgress: (percent) => control.onProgress?.('optimizing', percent),
+    })
+    throwIfCancelled(control.signal)
     const directory =
       target.assetDirectory ?? (target.binding ? 'src/assets/picaroo' : this.assetDirectory)
     const asset = this.generatedAssetPath(directory, originalName, optimized)
@@ -321,28 +347,39 @@ export class ProjectStore {
       else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
       else analyze(after, target.file, this.components, this.index.documents)
     }
-    await this.saveAsset(asset, optimized.data)
-    return this.commit(
-      {
-        id: randomUUID(),
-        label: target.label,
-        file,
-        asset,
-        kind: target.kind,
-        createdAt: new Date().toISOString(),
-        inputBytes: input.length,
-        outputBytes: optimized.data.length,
-        width: optimized.width,
-        height: optimized.height,
-        before,
-        after,
-        operation: 'replace',
-      },
-      [
-        { file: target.file, source },
-        { file, source: before },
-      ],
-    )
+    throwIfCancelled(control.signal)
+    control.onProgress?.('saving', 76)
+    const assetCreated = await this.saveAsset(asset, optimized.data)
+    try {
+      throwIfCancelled(control.signal)
+      control.onProgress?.('saving', 86)
+      return await this.commit(
+        {
+          id: randomUUID(),
+          label: target.label,
+          file,
+          asset,
+          kind: target.kind,
+          createdAt: new Date().toISOString(),
+          inputBytes: input.length,
+          outputBytes: optimized.data.length,
+          width: optimized.width,
+          height: optimized.height,
+          before,
+          after,
+          operation: 'replace',
+        },
+        [
+          { file: target.file, source },
+          { file, source: before },
+        ],
+        control.signal,
+      )
+    } catch (error) {
+      if (assetCreated && error instanceof Error && error.name === 'AbortError')
+        await unlink(await this.safePath(asset)).catch(() => {})
+      throw error
+    }
   }
 
   reprocess(
@@ -351,13 +388,17 @@ export class ProjectStore {
     assetId: string,
     assetVersion: string,
     options: ImageOptions,
+    control: MutationControl = {},
   ) {
     return this.serialize(async () => {
+      throwIfCancelled(control.signal)
+      control.onProgress?.('preparing', 30)
       const { target } = await this.resolveTarget(id, version)
       const current = this.index.resolve(target.current, target.data?.file ?? target.file)
       if (current?.id !== assetId) throw new Error('The selected image no longer uses this asset.')
       const { asset, data } = await this.index.readAsset(assetId, assetVersion)
-      return this.replaceInput(id, version, data, options, asset.name)
+      throwIfCancelled(control.signal)
+      return this.replaceInput(id, version, data, options, asset.name, control)
     })
   }
 
@@ -489,9 +530,11 @@ export class ProjectStore {
     try {
       const current = await readFile(await this.safePath(file))
       if (!current.equals(data)) throw new Error('An existing asset has conflicting contents.')
+      return false
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       await this.atomicWrite(file, data)
+      return true
     }
   }
 
@@ -505,18 +548,26 @@ export class ProjectStore {
     return { target, source }
   }
 
-  private async commit(entry: JournalEntry, guards: { file: string; source: string }[]) {
+  private async commit(
+    entry: JournalEntry,
+    guards: { file: string; source: string }[],
+    signal?: AbortSignal,
+  ) {
     const verify = async () => {
       for (const guard of guards)
         if ((await readFile(await this.safePath(guard.file), 'utf8')) !== guard.source)
           throw new Error('The source, JSON data, or asset changed before saving. Try again.')
     }
+    throwIfCancelled(signal)
     await verify()
+    throwIfCancelled(signal)
     if (entry.before === entry.after) return this.snapshot()
     const history = [entry, ...this.history].slice(0, 50)
     await this.atomicWrite('.picaroo/history.json', JSON.stringify(history, null, 2))
     try {
+      throwIfCancelled(signal)
       await verify()
+      throwIfCancelled(signal)
       await this.atomicWrite(entry.file, entry.after)
     } catch (error) {
       await this.atomicWrite('.picaroo/history.json', JSON.stringify(this.history, null, 2))

@@ -100,6 +100,7 @@ export type EditorCommand =
   | { type: 'map'; id: string; version: string; field: DataField }
   | { type: 'settings'; profile: OptimizationProfile }
   | { type: 'archive'; assetId: string; version: string }
+  | { type: 'cancel'; requestId: string }
   | {
       type: 'reprocess'
       requestId?: string
@@ -115,7 +116,8 @@ export type BridgeEvent =
   | { type: 'snapshot'; snapshot: Snapshot; visible: VisibleTarget[]; path: string }
   | { type: 'selected'; id: string }
   | { type: 'busy'; busy: boolean }
-  | { type: 'mutation-result'; requestId: string; error?: string }
+  | { type: 'mutation-result'; requestId: string; error?: string; cancelled?: boolean }
+  | { type: 'mutation-progress'; requestId: string; progress: ImageSaveProgress }
   | { type: 'notice'; message: string; error?: boolean }
   | { type: 'thumbnail'; assetId: string; version: string; blob: Blob | null }
   | { type: 'upload'; id: string; version: string; file: File }
@@ -133,7 +135,25 @@ export interface ImageOptions {
   ratio?: number
   focusX?: number
   focusY?: number
+  outputWidth?: number
+  outputHeight?: number
 }
+
+export type ImageSaveStage =
+  | 'uploading'
+  | 'preparing'
+  | 'optimizing'
+  | 'saving'
+  | 'refreshing'
+  | 'cancelling'
+
+export interface ImageSaveProgress {
+  stage: ImageSaveStage
+  percent: number
+}
+
+export const MAX_IMAGE_PIXELS = 40_000_000
+export const MAX_IMAGE_DIMENSION = 40_000
 
 export const DEFAULT_PROFILE: OptimizationProfile = {
   format: 'webp',

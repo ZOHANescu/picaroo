@@ -32,6 +32,7 @@ if (window.parent !== window) {
   let signature = ''
   let refreshing = false
   let refreshAgain = false
+  const cancelledRequests = new Set<string>()
   const host = document.createElement('picaroo-overlay')
   host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483646;pointer-events:none;'
   const shadow = host.attachShadow({ mode: 'open' })
@@ -66,13 +67,39 @@ if (window.parent !== window) {
     }
   }
 
-  async function api(route: string, init: RequestInit = {}) {
+  async function api<T = Snapshot>(route: string, init: RequestInit = {}) {
     const headers = new Headers(init.headers)
     headers.set('x-picaroo-token', PICAROO_CONFIG.token)
     const response = await fetch(`/__picaroo/api/${route}`, { ...init, headers })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error ?? 'Picaroo could not complete this change.')
-    return data as Snapshot
+    return data as T
+  }
+
+  async function publishProgress(requestId: string) {
+    try {
+      const progress = await api<import('./shared').ImageSaveProgress>(
+        `progress?id=${encodeURIComponent(requestId)}`,
+      )
+      send({ type: 'mutation-progress', requestId, progress })
+    } catch {
+      /* The operation may not be registered yet or may already be complete. */
+    }
+  }
+
+  async function cancelOperation(requestId: string, attempts = 0): Promise<void> {
+    try {
+      const result = await api<{ cancelled: boolean }>('cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId }),
+      })
+      if (!result.cancelled && attempts < 5 && cancelledRequests.has(requestId))
+        window.setTimeout(() => void cancelOperation(requestId, attempts + 1), 100)
+    } catch {
+      if (attempts < 5 && cancelledRequests.has(requestId))
+        window.setTimeout(() => void cancelOperation(requestId, attempts + 1), 100)
+    }
   }
 
   async function refresh() {
@@ -112,25 +139,41 @@ if (window.parent !== window) {
     }
     busy = true
     send({ type: 'busy', busy: true })
+    const progressInterval = requestId
+      ? window.setInterval(() => void publishProgress(requestId), 150)
+      : undefined
+    if (requestId) void publishProgress(requestId)
     try {
       snapshot = await action()
+      if (requestId)
+        send({
+          type: 'mutation-progress',
+          requestId,
+          progress: { stage: 'refreshing', percent: 96 },
+        })
       send({ type: 'notice', message })
       render()
       publish(true)
       if (requestId) send({ type: 'mutation-result', requestId })
     } catch (error) {
+      const cancelled = !!requestId && cancelledRequests.has(requestId)
       if (requestId)
         send({
           type: 'mutation-result',
           requestId,
-          error: error instanceof Error ? error.message : String(error),
+          ...(cancelled
+            ? { cancelled: true }
+            : { error: error instanceof Error ? error.message : String(error) }),
         })
-      send({
-        type: 'notice',
-        message: error instanceof Error ? error.message : String(error),
-        error: true,
-      })
+      if (!cancelled)
+        send({
+          type: 'notice',
+          message: error instanceof Error ? error.message : String(error),
+          error: true,
+        })
     } finally {
+      if (progressInterval !== undefined) clearInterval(progressInterval)
+      if (requestId) cancelledRequests.delete(requestId)
       busy = false
       send({ type: 'busy', busy: false })
     }
@@ -161,6 +204,7 @@ if (window.parent !== window) {
             'x-picaroo-version': version,
             'x-picaroo-options': JSON.stringify(options ?? {}),
             'x-picaroo-name': encodeURIComponent(file.name),
+            ...(requestId ? { 'x-picaroo-request': requestId } : {}),
           },
         }),
       'Image saved to your project. The preview is updating.',
@@ -359,7 +403,10 @@ if (window.parent !== window) {
       element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     } else if (message.type === 'replace' && message.file instanceof File)
       replace(message.id, message.file, message.version, message.options, message.requestId)
-    else if (message.type === 'thumbnail') {
+    else if (message.type === 'cancel') {
+      cancelledRequests.add(message.requestId)
+      void cancelOperation(message.requestId)
+    } else if (message.type === 'thumbnail') {
       void fetch(
         `/__picaroo/api/thumbnail?id=${encodeURIComponent(message.assetId)}&version=${encodeURIComponent(message.version)}`,
         {
