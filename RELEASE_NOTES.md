@@ -1,5 +1,71 @@
 # Picaroo release notes
 
+## v1.2.0 — 2026-10-05
+
+Picaroo 1.2.0 restores reliable Angular image discovery and introduces configurable image sources for application-owned Angular directives and components. It also adds a cross-framework stability suite that verifies every supported discovery scenario in plain HTML, React, and Angular before release.
+
+### Highlights
+
+- **Angular discovery restored** — Fixes the regressions found after v1.1.0, including SOH-style image directives and image arrays passed into reusable child gallery components.
+- **Configurable Angular image sources** — Register custom element or directive inputs in the consuming application's `package.json`; Picaroo no longer contains an application-specific `sohImage` rule.
+- **One-off CLI mappings** — Add repeatable `--angular-image-source tag:sourceAttribute:labelAttribute` options without changing project configuration.
+- **Framework-specific regression apps** — Minimal HTML, React, and Angular fixtures cover common image usage patterns drawn from the AIM and SOH projects.
+- **One discovery per test** — Every expected image has an independent Cypress test, so failures identify the exact unsupported pattern.
+- **One-command stability check** — `npm run test:e2e` starts each fixture and Picaroo, runs all discovery suites, and prints a combined stability result.
+- **Continuous stability enforcement** — CI now runs unit tests, type checking, and the complete cross-framework Cypress suite.
+
+### Configure custom Angular image sources
+
+Declare custom sources under `picaroo.angular.imageSources` in the consuming application's `package.json`:
+
+```json
+{
+  "picaroo": {
+    "angular": {
+      "imageSources": [
+        {
+          "tag": "img",
+          "attributes": ["sohImage"],
+          "labelAttributes": ["alt"]
+        },
+        {
+          "tag": "app-photo",
+          "attributes": ["imageUrl"],
+          "labelAttributes": ["label", "alt"]
+        }
+      ]
+    }
+  }
+}
+```
+
+The registration is additive to Picaroo's built-in support for native images and PrimeNG image components. Source attributes can be static or bound Angular inputs. As a temporary or one-off alternative, repeat the CLI option:
+
+```sh
+npx picaroo --url http://localhost:4200 --angular-image-source img:sohImage:alt --angular-image-source app-photo:imageUrl:label
+```
+
+### Stability coverage
+
+The release gate currently verifies 49 independent discovery scenarios:
+
+| Framework | Expected | Result |
+| --- | ---: | --- |
+| Plain HTML | 12 | 12 discovered |
+| React | 16 | 16 discovered |
+| Angular | 21 | 21 discovered |
+
+### Upgrade notes
+
+This release has no breaking configuration changes.
+
+1. Update the pinned Picaroo submodule or local dependency to `v1.2.0`.
+2. Run `npm install` in the consuming application.
+3. If the Angular application uses custom image directives or components, register their source inputs under `picaroo.angular.imageSources` or pass `--angular-image-source` when starting Picaroo.
+4. React projects can keep their existing `picaroo.components` configuration unchanged.
+
+Built-in Angular and PrimeNG sources require no configuration. Existing project settings, history, generated assets, and source integrations remain valid.
+
 ## v1.1.0 — 2026-10-03
 
 Picaroo 1.1.0 is a feature release focused on richer image editing, broader source detection, and safer asset removal. It remains compatible with the v1.0.0 setup.
