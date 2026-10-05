@@ -22,7 +22,7 @@ Source-aware editing supports **React**, **Angular**, and **plain HTML**. Any pr
 - JPEG, PNG, WebP, AVIF, and SVG assets up to 50 MB and 64 megapixels.
 - A standard `public/` directory or Angular `src/assets/` directory.
 
-Picaroo understands native images, CSS backgrounds, static inline SVGs, React asset imports, Angular static bindings and readonly data, direct JSON imports, and PrimeNG `p-image`, `p-avatar`, and image-bearing `p-chip` components. Dynamic or unresolved expressions are marked **Needs mapping** instead of being rewritten speculatively.
+Picaroo understands native images, CSS backgrounds, static inline SVGs, React asset imports, Angular static bindings and readonly data, direct JSON imports, and PrimeNG `p-image`, `p-avatar`, and image-bearing `p-chip` components. Application-owned Angular elements and directives can be registered as image sources. Dynamic or unresolved expressions are marked **Needs mapping** instead of being rewritten speculatively.
 
 Picaroo is currently installed as a local package, usually through a Git submodule. It is not published to npm.
 
@@ -95,6 +95,39 @@ export function MediaSlot({ src, label, ...rootProps }) {
 
 The CLI and Vite adapter both read this configuration. For a one-off run, add names with `--component MediaSlot`.
 
+### Custom Angular image sources
+
+Register application-owned Angular elements or directives that expose an image through an input. Each entry names the HTML tag, one or more source attributes, and optional attributes Picaroo can use as the image label:
+
+```json
+{
+  "picaroo": {
+    "angular": {
+      "imageSources": [
+        {
+          "tag": "img",
+          "attributes": ["sohImage"],
+          "labelAttributes": ["alt"]
+        },
+        {
+          "tag": "app-photo",
+          "attributes": ["imageUrl"],
+          "labelAttributes": ["label", "alt"]
+        }
+      ]
+    }
+  }
+}
+```
+
+Source attributes may be static (`imageUrl="..."`) or bound (`[imageUrl]="..."`). Picaroo checks label attributes in order and uses the first available value. These registrations are additive to native images and the built-in PrimeNG sources.
+
+For a one-off run, pass the same mapping as `tag:sourceAttribute:labelAttribute`. Repeat the option to add more sources:
+
+```sh
+npx picaroo --url http://localhost:4200 --angular-image-source img:sohImage:alt --angular-image-source app-photo:imageUrl:label
+```
+
 ## Run
 
 Keep the application and Picaroo running in separate terminals:
@@ -128,7 +161,7 @@ Switch to **Browse** for normal application navigation. Desktop and mobile contr
 | Source | Supported edits |
 | --- | --- |
 | React JSX/TSX | Literal paths, direct asset imports, registered image components, static JSON fields, inline styles, inline SVG, and literal `srcSet` |
-| Angular | Static template sources, static bindings, readonly object/array fields, `@for` records, PrimeNG image components, inline templates, and CSS |
+| Angular | Static template sources, static bindings, readonly object/array fields, `@for` records, reusable child gallery inputs, PrimeNG image components, configured custom elements/directives, inline templates, and CSS |
 | Plain HTML | Image sources, inline SVG, responsive candidates, and linked CSS backgrounds |
 | JSON | Direct imported string fields and direct array `.map()` records |
 | CSS | Literal `url(...)` values in `background` and `background-image` |
