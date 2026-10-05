@@ -3,9 +3,15 @@ import { once } from 'node:events'
 import { readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  errorResult,
+  formatStabilityReport,
+  isStable,
+  normalizeDiscoveryResult,
+} from './e2e-report.mjs'
+import { frameworks } from './e2e-suites.mjs'
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
-const frameworks = ['html', 'react', 'angular']
 let activeChild
 let interrupted = false
 
@@ -36,23 +42,9 @@ async function readDiscoveryResult(framework, execution) {
   const resultFile = path.join(root, 'test', 'results', `${framework}.json`)
   try {
     const result = JSON.parse(await readFile(resultFile, 'utf8'))
-    const discoveryResult = execution.exitCode === 0 ? result.result : 'FAILED'
-    return {
-      framework: result.framework,
-      expected: result.expected,
-      found: result.found,
-      result: discoveryResult,
-      exitCode: execution.exitCode,
-    }
+    return normalizeDiscoveryResult(framework, execution, result)
   } catch (error) {
-    return {
-      framework: framework[0].toUpperCase() + framework.slice(1),
-      expected: '—',
-      found: '—',
-      result: 'ERROR',
-      exitCode: execution.exitCode,
-      error: execution.error?.message ?? (error instanceof Error ? error.message : String(error)),
-    }
+    return errorResult(framework, execution, error)
   }
 }
 
@@ -76,20 +68,6 @@ for (const framework of frameworks) {
   if (interrupted) break
 }
 
-console.log(`\n${'='.repeat(72)}`)
-console.log('PICAROO IMAGE DISCOVERY STABILITY')
-console.log('='.repeat(72))
-console.log('Framework  Expected  Found  Result')
-for (const result of results) {
-  console.log(
-    `${result.framework.padEnd(10)} ${String(result.expected).padStart(8)}  ${String(result.found).padStart(5)}  ${result.result}`,
-  )
-  if (result.error) console.log(`           ${result.error}`)
-}
-
-const stable = results.length === frameworks.length && results.every((result) => {
-  return result.result === 'SUCCESS' && result.exitCode === 0
-})
-console.log('-'.repeat(72))
-console.log(`PICAROO STABILITY: ${stable ? 'SUCCESS' : 'FAILED'}`)
+const stable = isStable(results, frameworks)
+console.log(`\n${formatStabilityReport(results, stable)}`)
 process.exitCode = stable ? 0 : 1

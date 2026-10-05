@@ -3,24 +3,19 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { access, cp, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createServer as createNetServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import cypress from 'cypress'
+import { resolveSuite } from './e2e-suites.mjs'
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 const framework = process.argv[2] ?? 'html'
-const suites = {
-  html: { appPort: 4401, editorPort: 4501, previewPort: 4601 },
-  react: { appPort: 4402, editorPort: 4502, previewPort: 4602 },
-  angular: { appPort: 4403, editorPort: 4503, previewPort: 4603 },
-}
-const suite = suites[framework]
-if (!suite) throw new Error(`Unknown E2E framework "${framework}". Choose: ${Object.keys(suites).join(', ')}.`)
-const environment = `PICAROO_TEST_${framework.toUpperCase()}`
+const suite = resolveSuite(framework)
 const fixtureSource = path.join(root, 'test', framework)
-const appPort = Number(process.env[`${environment}_PORT`] ?? suite.appPort)
-const editorPort = Number(process.env[`${environment}_EDITOR_PORT`] ?? suite.editorPort)
-const previewPort = Number(process.env[`${environment}_PREVIEW_PORT`] ?? suite.previewPort)
+const appPort = suite.appPort
+const editorPort = suite.editorPort
+const previewPort = suite.previewPort
 const appUrl = `http://localhost:${appPort}`
 const editorUrl = `http://localhost:${editorPort}`
 const previewUrl = `http://localhost:${previewPort}`
@@ -36,6 +31,13 @@ const mime = new Map([
 let picaroo
 let fixture
 let stopping = false
+const childErrors = new WeakMap()
+
+function spawnChild(command, args, options) {
+  const child = spawn(command, args, options)
+  child.once('error', (error) => childErrors.set(child, error))
+  return child
+}
 
 function staticServer() {
   return createHttpServer(async (request, response) => {
@@ -70,7 +72,7 @@ async function startApplication() {
   }
   if (framework === 'angular') {
     await symlink(path.join(root, 'node_modules'), path.join(fixture, 'node_modules'), 'junction')
-    const child = spawn(
+    const child = spawnChild(
       process.execPath,
       [
         path.join(root, 'node_modules', '@angular', 'cli', 'bin', 'ng.js'),
@@ -84,16 +86,42 @@ async function startApplication() {
       ],
       { cwd: fixture, stdio: 'inherit' },
     )
-    await waitFor(appUrl, 'Angular fixture', child)
     return { close: () => stopChild(child) }
   }
-  const child = spawn(
+  const child = spawnChild(
     process.execPath,
     [path.join(root, 'test', 'start-react.mjs'), fixture, String(appPort), editorUrl],
     { cwd: root, stdio: 'inherit' },
   )
-  await waitFor(appUrl, 'React fixture', child)
   return { close: () => stopChild(child) }
+}
+
+async function assertPortAvailable(port, label, variable) {
+  const server = createNetServer()
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, 'localhost', () => {
+        server.off('error', reject)
+        resolve()
+      })
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `${suite.name} ${label} port ${port} is unavailable (${detail}). Stop the conflicting process or override ${variable}.`,
+    )
+  } finally {
+    if (server.listening) await closeHttpServer(server)
+  }
+}
+
+async function assertPortsAvailable() {
+  await Promise.all([
+    assertPortAvailable(appPort, 'app', suite.variables.app),
+    assertPortAvailable(editorPort, 'editor', suite.variables.editor),
+    assertPortAvailable(previewPort, 'preview', suite.variables.preview),
+  ])
 }
 
 function listen(server, port) {
@@ -118,8 +146,12 @@ async function waitFor(url, label, child) {
     }
   }
   while (Date.now() < deadline) {
+    const childError = child && childErrors.get(child)
+    if (childError) throw new Error(`${label} could not start: ${childError.message}`)
     if (child && child.exitCode !== null)
-      throw new Error(`${label} stopped before it became ready (exit ${child.exitCode}).`)
+      throw new Error(
+        `${label} stopped before it became ready (${child.signalCode ?? `exit ${child.exitCode}`}).`,
+      )
     for (const candidate of candidates) {
       try {
         const response = await fetch(candidate)
@@ -140,10 +172,17 @@ async function waitFor(url, label, child) {
 async function stopChild(child) {
   if (!child || child.exitCode !== null || child.killed) return
   child.kill()
-  await Promise.race([
-    once(child, 'exit'),
-    new Promise((resolve) => setTimeout(resolve, 5_000)),
+  const exited = await Promise.race([
+    once(child, 'exit').then(() => true, () => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 5_000)),
   ])
+  if (!exited && child.exitCode === null) {
+    child.kill('SIGKILL')
+    await Promise.race([
+      once(child, 'exit').catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 1_000)),
+    ])
+  }
 }
 
 async function closeHttpServer(server) {
@@ -153,6 +192,7 @@ async function closeHttpServer(server) {
 
 async function main() {
   await rm(resultFile, { force: true })
+  await assertPortsAvailable()
   const temporaryPrefix = `picaroo-e2e-${framework}-`
   fixture = await mkdtemp(path.join(tmpdir(), temporaryPrefix))
   await cp(fixtureSource, fixture, { recursive: true })
@@ -177,7 +217,7 @@ async function main() {
     app = await startApplication()
     await waitFor(appUrl, `${framework} fixture`)
     console.log(`${framework.toUpperCase()} fixture ready at ${appUrl}`)
-    picaroo = spawn(
+    picaroo = spawnChild(
       process.execPath,
       [
         path.join(root, 'bin', 'picaroo.mjs'),
