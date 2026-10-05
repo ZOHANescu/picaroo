@@ -30,6 +30,7 @@ import { analyzeAngular, replaceAngularReference } from '../source-edits/angular
 import type { AngularChildComponent, AngularComponentSource } from '../source-edits/angular'
 import { analyzeHtml, replaceHtmlReference } from '../source-edits/html'
 import type { ProjectFramework } from '../integrations/project'
+import type { AngularImageSource } from '../integrations/components'
 
 interface JournalEntry extends Change {
   before: string
@@ -67,6 +68,7 @@ export class ProjectStore {
     private framework = 'React + Vite',
     private assetDirectory = 'public/picaroo',
     private integration: ProjectFramework = 'react',
+    private angularImageSources: AngularImageSource[] = [],
   ) {
     this.index = new ProjectIndex(
       root,
@@ -156,6 +158,7 @@ export class ProjectStore {
             this.assetDirectory,
             file.endsWith('.html') ? angularComponents.get(file) : undefined,
             angularChildComponents,
+            this.angularImageSources,
           ))
             this.targets.set(target.id, target)
         else if (this.integration === 'html' && file.endsWith('.html'))
@@ -374,7 +377,8 @@ export class ProjectStore {
             : replaceReference(source, target, embedded ? publicUrl : asset)
     if (!document) {
       if (target.visual?.type === 'css') analyzeCss(after, file)
-      else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+      else if (target.angular)
+        analyzeAngular(after, target.file, this.assetDirectory, undefined, [], this.angularImageSources)
       else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
       else analyze(after, target.file, this.components, this.index.documents)
     }
@@ -541,7 +545,8 @@ export class ProjectStore {
       if (before === after && !asset) throw new Error('This image does not have a removable source.')
       if (!document) {
         if (target.visual?.type === 'css') analyzeCss(after, file)
-        else if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+        else if (target.angular)
+          analyzeAngular(after, target.file, this.assetDirectory, undefined, [], this.angularImageSources)
         else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
         else analyze(after, target.file, this.components, this.index.documents)
       }
@@ -757,7 +762,8 @@ export class ProjectStore {
               ? replaceHtmlReference(source, target, this.publicUrl(destination))
             : reuseReference(source, target, destination)
       if (!document) {
-        if (target.angular) analyzeAngular(after, target.file, this.assetDirectory)
+        if (target.angular)
+          analyzeAngular(after, target.file, this.assetDirectory, undefined, [], this.angularImageSources)
         else if (target.html) analyzeHtml(after, target.file, this.assetDirectory)
         else analyze(after, target.file, this.components, this.index.documents)
       }

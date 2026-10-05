@@ -7,7 +7,7 @@ import react from '@vitejs/plugin-react'
 import { PicarooService } from './server/picaroo-service'
 import { createPreviewGateway } from './server/preview-gateway'
 import { detectProjectIntegration } from './integrations/project'
-import { resolveImageComponents } from './integrations/components'
+import { resolveAngularImageSources, resolveImageComponents } from './integrations/components'
 
 const { values } = parseArgs({
   options: {
@@ -45,6 +45,7 @@ if (values.help) {
   const integration = await detectProjectIntegration(projectRoot, pkg)
   const framework = integration.label
   const components = resolveImageComponents(pkg, values.component)
+  const angularImageSources = resolveAngularImageSources(pkg)
   const port = validPort(values.port, 'editor')
   const previewPort = validPort(values['preview-port'] ?? String(port + 1), 'preview')
   if (previewPort === port) throw new Error('The editor and preview ports must be different.')
@@ -58,6 +59,7 @@ if (values.help) {
     integration: integration.id,
     assetDirectory: integration.assetDirectory,
     components,
+    angularImageSources,
   })
   await service.initialize()
 

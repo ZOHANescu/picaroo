@@ -2,6 +2,17 @@
   "name": "picaroo-test-angular",
   "version": "1.0.0",
   "private": true,
+  "picaroo": {
+    "angular": {
+      "imageSources": [
+        {
+          "tag": "img",
+          "attributes": ["sohImage"],
+          "labelAttributes": ["alt"]
+        }
+      ]
+    }
+  },
   "dependencies": {
     "@angular/common": "20.2.4",
     "@angular/compiler": "20.2.4",

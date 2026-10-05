@@ -158,10 +158,14 @@ test('finds static and bound custom image directive sources', () => {
       readonly hero = { src: '/assets/hero.webp', alt: 'Bound directive image' }
     }
   `
-  const targets = analyzeAngular(template, 'src/app/home.component.html', 'src/assets/picaroo', {
-    file: 'src/app/home.component.ts',
-    source: component,
-  })
+  const targets = analyzeAngular(
+    template,
+    'src/app/home.component.html',
+    'src/assets/picaroo',
+    { file: 'src/app/home.component.ts', source: component },
+    [],
+    [{ tag: 'img', attributes: ['sohImage'], labelAttributes: ['alt'] }],
+  )
 
   assert.deepEqual(
     targets.map((target) => [target.label, target.current]),
@@ -215,6 +219,7 @@ test('resolves image arrays passed to a reusable child component input', () => {
       source: galleryTemplate,
       component: { file: 'src/app/gallery.component.ts', source: childComponent },
     }],
+    [{ tag: 'img', attributes: ['sohImage'], labelAttributes: ['alt'] }],
   )
 
   assert.deepEqual(
@@ -224,5 +229,26 @@ test('resolves image arrays passed to a reusable child component input', () => {
       ['src/app/home.component.ts', 'Gallery two', '/assets/two.webp'],
       ['src/app/home.component.ts', 'Gallery three', '/assets/three.webp'],
     ],
+  )
+})
+
+test('requires custom Angular image sources to be declared', () => {
+  const template = '<img sohImage="/assets/custom.webp" alt="Custom image" />'
+  assert.deepEqual(analyzeAngular(template, 'src/app/home.component.html'), [])
+})
+
+test('supports configured Angular custom image elements', () => {
+  const template = '<app-photo [imageUrl]="\'/assets/custom.webp\'" label="Custom photo" />'
+  const targets = analyzeAngular(
+    template,
+    'src/app/home.component.html',
+    'src/assets/picaroo',
+    undefined,
+    [],
+    [{ tag: 'app-photo', attributes: ['imageUrl'], labelAttributes: ['label'] }],
+  )
+  assert.deepEqual(
+    targets.map((target) => [target.label, target.current]),
+    [['Custom photo', '/assets/custom.webp']],
   )
 })

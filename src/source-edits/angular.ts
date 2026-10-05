@@ -4,6 +4,7 @@ import { VISITOR_KEYS } from '@babel/types'
 import type { Node } from '@babel/types'
 import MagicString from 'magic-string'
 import { hash } from '../hash'
+import type { AngularImageSource } from '../integrations/components'
 import type { SourceTarget } from './react'
 
 const imageUrl = /\.(?:svg|png|jpe?g|webp|avif)(?:[?#].*)?$/i
@@ -50,12 +51,14 @@ interface LiteralValue {
   line: number
 }
 
-const imageComponents = new Map<string, { sources: string[]; labels: string[] }>([
-  ['img', { sources: ['src', 'ngsrc', 'sohimage'], labels: ['alt'] }],
+type ImageComponentRegistry = Map<string, { sources: string[]; labels: string[] }>
+
+const builtInImageComponents: [string, { sources: string[]; labels: string[] }][] = [
+  ['img', { sources: ['src', 'ngsrc'], labels: ['alt'] }],
   ['p-image', { sources: ['src'], labels: ['alt'] }],
   ['p-avatar', { sources: ['image'], labels: ['arialabel', 'label'] }],
   ['p-chip', { sources: ['image'], labels: ['alt', 'label'] }],
-])
+]
 
 export function analyzeAngular(
   source: string,
@@ -63,13 +66,16 @@ export function analyzeAngular(
   assetDirectory = 'public/picaroo',
   component?: AngularComponentSource,
   childComponents: AngularChildComponent[] = [],
+  customImageSources: AngularImageSource[] = [],
 ): SourceTarget[] {
+  const imageComponents = imageComponentRegistry(customImageSources)
   const targets = analyzeAngularTemplate(
     source,
     file,
     assetDirectory,
     component,
     childComponents,
+    imageComponents,
   )
   const unique = new Map<string, SourceTarget>()
   for (const target of targets) unique.set(`${target.file}:${target.start}:${target.end}`, target)
@@ -88,6 +94,7 @@ function analyzeAngularTemplate(
   assetDirectory: string,
   component: AngularComponentSource | undefined,
   childComponents: AngularChildComponent[],
+  imageComponents: ImageComponentRegistry,
   options: AngularAnalysisOptions = {},
 ): SourceTarget[] {
   const regions = file.endsWith('.html') ? [{ source, offset: 0 }] : inlineTemplates(source)
@@ -204,6 +211,7 @@ function analyzeAngularTemplate(
             assetDirectory,
             componentSource,
             [],
+            imageComponents,
             {
               inputBindings,
               bindingsOnly: true,
@@ -212,7 +220,7 @@ function analyzeAngularTemplate(
           ),
         )
         for (const [input, expression] of inputBindings) {
-          if (!rendersBoundImages(child, input)) continue
+          if (!rendersBoundImages(child, input, imageComponents)) continue
           const root = resolveNode(fields.get(expression[0]), expression.slice(1))
           for (const [index, item] of imageLiterals(root, componentSource.source).entries()) {
             if (!supportedImage(item.literal.current)) continue
@@ -243,6 +251,30 @@ function analyzeAngularTemplate(
     }
   }
   return targets
+}
+
+function imageComponentRegistry(customImageSources: AngularImageSource[]) {
+  const registry: ImageComponentRegistry = new Map(
+    builtInImageComponents.map(([tag, value]) => [
+      tag,
+      { sources: [...value.sources], labels: [...value.labels] },
+    ]),
+  )
+  for (const source of customImageSources) {
+    const tag = source.tag.toLowerCase()
+    const current = registry.get(tag) ?? { sources: [], labels: [] }
+    current.sources = [
+      ...new Set([...current.sources, ...source.attributes.map((attribute) => attribute.toLowerCase())]),
+    ]
+    current.labels = [
+      ...new Set([
+        ...current.labels,
+        ...source.labelAttributes.map((attribute) => attribute.toLowerCase()),
+      ]),
+    ]
+    registry.set(tag, current)
+  }
+  return registry
 }
 
 function componentFields(source: string) {
@@ -368,7 +400,11 @@ function imageLiterals(node: Node | undefined, source: string): { literal: Liter
   return [...own, ...nested]
 }
 
-function rendersBoundImages(child: AngularChildComponent, input: string) {
+function rendersBoundImages(
+  child: AngularChildComponent,
+  input: string,
+  imageComponents: ImageComponentRegistry,
+) {
   const escaped = input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const direct = new RegExp(`\\b${escaped}\\s*\\(\\s*\\)`).test(child.source)
   const derived = child.component
