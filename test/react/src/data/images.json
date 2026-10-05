@@ -1,0 +1,20 @@
+{
+  "hero": {
+    "src": "/assets/json-hero.svg",
+    "alt": "Direct JSON image"
+  },
+  "gallery": [
+    {
+      "src": "/assets/gallery-one.svg",
+      "alt": "JSON gallery image one"
+    },
+    {
+      "src": "/assets/gallery-two.svg",
+      "alt": "JSON gallery image two"
+    },
+    {
+      "src": "/assets/gallery-three.svg",
+      "alt": "JSON gallery image three"
+    }
+  ]
+}

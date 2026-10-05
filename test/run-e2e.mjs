@@ -1,4 +1,4 @@
-import { createServer } from 'node:http'
+import { createServer as createHttpServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { access, cp, mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -8,10 +8,18 @@ import { fileURLToPath } from 'node:url'
 import cypress from 'cypress'
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
-const fixtureSource = path.join(root, 'test', 'html')
-const appPort = Number(process.env.PICAROO_TEST_HTML_PORT ?? 4401)
-const editorPort = Number(process.env.PICAROO_TEST_HTML_EDITOR_PORT ?? 4501)
-const previewPort = Number(process.env.PICAROO_TEST_HTML_PREVIEW_PORT ?? 4601)
+const framework = process.argv[2] ?? 'html'
+const suites = {
+  html: { appPort: 4401, editorPort: 4501, previewPort: 4601 },
+  react: { appPort: 4402, editorPort: 4502, previewPort: 4602 },
+}
+const suite = suites[framework]
+if (!suite) throw new Error(`Unknown E2E framework "${framework}". Choose: ${Object.keys(suites).join(', ')}.`)
+const environment = `PICAROO_TEST_${framework.toUpperCase()}`
+const fixtureSource = path.join(root, 'test', framework)
+const appPort = Number(process.env[`${environment}_PORT`] ?? suite.appPort)
+const editorPort = Number(process.env[`${environment}_EDITOR_PORT`] ?? suite.editorPort)
+const previewPort = Number(process.env[`${environment}_PREVIEW_PORT`] ?? suite.previewPort)
 const appUrl = `http://localhost:${appPort}`
 const editorUrl = `http://localhost:${editorPort}`
 const previewUrl = `http://localhost:${previewPort}`
@@ -28,7 +36,7 @@ let fixture
 let stopping = false
 
 function staticServer() {
-  return createServer(async (request, response) => {
+  return createHttpServer(async (request, response) => {
     try {
       const pathname = decodeURIComponent(new URL(request.url ?? '/', appUrl).pathname)
       const requested = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
@@ -50,6 +58,21 @@ function staticServer() {
       response.end('Not found')
     }
   })
+}
+
+async function startApplication() {
+  if (framework === 'html') {
+    const server = staticServer()
+    await listen(server, appPort)
+    return { close: () => closeHttpServer(server) }
+  }
+  const child = spawn(
+    process.execPath,
+    [path.join(root, 'test', 'start-react.mjs'), fixture, String(appPort), editorUrl],
+    { cwd: root, stdio: 'inherit' },
+  )
+  await waitFor(appUrl, 'React fixture', child)
+  return { close: () => stopChild(child) }
 }
 
 function listen(server, port) {
@@ -74,7 +97,7 @@ async function waitFor(url, label, child) {
     }
   }
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null)
+    if (child && child.exitCode !== null)
       throw new Error(`${label} stopped before it became ready (exit ${child.exitCode}).`)
     for (const candidate of candidates) {
       try {
@@ -102,25 +125,26 @@ async function stopChild(child) {
   ])
 }
 
-async function close(server) {
+async function closeHttpServer(server) {
   if (!server.listening) return
   await new Promise((resolve) => server.close(resolve))
 }
 
 async function main() {
-  fixture = await mkdtemp(path.join(tmpdir(), 'picaroo-e2e-html-'))
+  const temporaryPrefix = `picaroo-e2e-${framework}-`
+  fixture = await mkdtemp(path.join(tmpdir(), temporaryPrefix))
   await cp(fixtureSource, fixture, { recursive: true })
-  const app = staticServer()
+  let app
   const stop = async () => {
     if (stopping) return
     stopping = true
     await stopChild(picaroo)
-    await close(app)
+    await app?.close()
     const temporaryRoot = path.resolve(tmpdir())
     const runtimeRoot = path.resolve(fixture)
     if (
       path.dirname(runtimeRoot) === temporaryRoot &&
-      path.basename(runtimeRoot).startsWith('picaroo-e2e-html-')
+      path.basename(runtimeRoot).startsWith(temporaryPrefix)
     )
       await rm(runtimeRoot, { recursive: true, force: true })
   }
@@ -128,8 +152,9 @@ async function main() {
   process.once('SIGTERM', () => void stop().finally(() => process.exit(143)))
 
   try {
-    await listen(app, appPort)
-    console.log(`HTML fixture ready at ${appUrl}`)
+    app = await startApplication()
+    await waitFor(appUrl, `${framework} fixture`)
+    console.log(`${framework.toUpperCase()} fixture ready at ${appUrl}`)
     picaroo = spawn(
       process.execPath,
       [
@@ -149,12 +174,14 @@ async function main() {
       waitFor(editorUrl, 'Picaroo editor', picaroo),
       waitFor(previewUrl, 'Picaroo preview', picaroo),
     ])
+    console.log(`Starting Cypress for ${framework} discovery...`)
     const result = await cypress.run({
       browser: 'electron',
       configFile: path.join(root, 'test', 'cypress.config.mjs'),
-      spec: path.join(root, 'test', 'html', 'discovery.cy.js'),
+      spec: path.join(root, 'test', framework, 'discovery.cy.js'),
       config: { baseUrl: editorUrl },
     })
+    console.log(`Cypress finished for ${framework} discovery.`)
     if ('status' in result && result.status === 'failed') {
       console.error(result.message)
       process.exitCode = 1
