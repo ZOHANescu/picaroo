@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { resolveAngularImageSources } from '../integrations/components'
 import { analyzeAngular, replaceAngularReference } from './angular'
 
 test('finds Base64 image sources', () => {
@@ -251,4 +252,27 @@ test('supports configured Angular custom image elements', () => {
     targets.map((target) => [target.label, target.current]),
     [['Custom photo', '/assets/custom.webp']],
   )
+})
+
+test('does not duplicate targets from repeated Angular image source declarations', () => {
+  const imageSources = resolveAngularImageSources({
+    picaroo: {
+      angular: {
+        imageSources: [
+          { tag: 'app-photo', attributes: ['imageUrl'], labelAttributes: ['label'] },
+          { tag: 'app-photo', attributes: ['imageUrl'], labelAttributes: ['label'] },
+        ],
+      },
+    },
+  })
+  const targets = analyzeAngular(
+    '<app-photo imageUrl="/assets/custom.webp" label="Only once" />',
+    'src/app/home.component.html',
+    'src/assets/picaroo',
+    undefined,
+    [],
+    imageSources,
+  )
+  assert.equal(targets.length, 1)
+  assert.equal(targets[0].label, 'Only once')
 })

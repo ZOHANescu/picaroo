@@ -8,6 +8,7 @@ import {
   PrimeImageStubComponent,
 } from './prime-image-stubs.component'
 import { ResponsiveImageDirective } from './responsive-image.directive'
+import { CustomImageComponent } from './custom-image.component'
 
 interface FixtureImage {
   src: string
@@ -18,6 +19,7 @@ interface FixtureImage {
   selector: 'app-root',
   imports: [
     GalleryComponent,
+    CustomImageComponent,
     InlineImageComponent,
     NgOptimizedImage,
     PrimeAvatarStubComponent,

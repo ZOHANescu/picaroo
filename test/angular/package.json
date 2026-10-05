@@ -9,6 +9,11 @@
           "tag": "img",
           "attributes": ["sohImage"],
           "labelAttributes": ["alt"]
+        },
+        {
+          "tag": "app-photo",
+          "attributes": ["imageUrl"],
+          "labelAttributes": ["label"]
         }
       ]
     }

@@ -16,6 +16,7 @@ const discoveries = [
   { name: 'an image rendered by a delayed @if', label: 'Delayed Angular image' },
   { name: 'a static SOH-style image directive', label: 'Angular custom directive static image' },
   { name: 'a bound SOH-style image directive', label: 'Angular custom directive bound image' },
+  { name: 'a configured custom image element', label: 'Angular configured custom element' },
   { name: 'the first reusable gallery input record', label: 'Angular gallery image one' },
   { name: 'the second reusable gallery input record', label: 'Angular gallery image two' },
   { name: 'the third reusable gallery input record', label: 'Angular gallery image three' },
@@ -44,14 +45,16 @@ describe('Angular image discovery', () => {
   }
 
   after(() => {
-    cy.get('[data-testid="page-image-card"]', { timeout: 10_000 }).then(($cards) => {
-      const labels = [...$cards].map((card) => card.querySelector('strong')?.textContent?.trim())
-      cy.task('reportDiscovery', {
-        framework: 'Angular',
-        expected: discoveries.length,
-        found: $cards.length,
-        labels,
+    cy.get('[data-testid="page-image-card"]', { timeout: 10_000 })
+      .should('have.length', discoveries.length)
+      .then(($cards) => {
+        const labels = [...$cards].map((card) => card.querySelector('strong')?.textContent?.trim())
+        cy.task('reportDiscovery', {
+          framework: 'Angular',
+          expected: discoveries.length,
+          found: $cards.length,
+          labels,
+        })
       })
-    })
   })
 })

@@ -23,6 +23,10 @@
     }
     <img sohImage="/assets/directive-static.svg" alt="Angular custom directive static image" />
     <img [sohImage]="directiveImage.src" [alt]="directiveImage.alt" />
+    <app-photo
+      [imageUrl]="'/assets/custom-element.svg'"
+      label="Angular configured custom element"
+    />
     <app-gallery [images]="galleryImages" />
   </section>
 </main>
