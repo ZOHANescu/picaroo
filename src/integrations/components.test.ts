@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveImageComponents } from './components'
+import { resolveAngularImageSources, resolveImageComponents } from './components'
 
 test('shares configured components with optional CLI or plugin additions', () => {
   const manifest = {
@@ -19,4 +19,74 @@ test('rejects invalid component configuration', () => {
     /must be an array/,
   )
   assert.throws(() => resolveImageComponents({}, ['Gallery.Image']), /Invalid Picaroo/)
+})
+
+test('resolves and merges Angular image source configuration', () => {
+  const manifest = {
+    picaroo: {
+      angular: {
+        imageSources: [
+          { tag: 'img', attributes: ['sohImage'], labelAttributes: ['alt'] },
+          { tag: 'app-photo', attributes: ['imageUrl'], labelAttributes: ['label'] },
+          { tag: 'img', attributes: ['sohImage', 'fallbackImage'] },
+        ],
+      },
+    },
+  }
+
+  assert.deepEqual(resolveAngularImageSources(manifest), [
+    {
+      tag: 'img',
+      attributes: ['sohimage', 'fallbackimage'],
+      labelAttributes: ['alt'],
+    },
+    { tag: 'app-photo', attributes: ['imageurl'], labelAttributes: ['label'] },
+  ])
+})
+
+test('merges package and additive Angular image sources', () => {
+  const manifest = {
+    picaroo: {
+      angular: {
+        imageSources: [{ tag: 'img', attributes: ['sohImage'] }],
+      },
+    },
+  }
+  assert.deepEqual(
+    resolveAngularImageSources(manifest, [
+      { tag: 'app-photo', attributes: ['url'], labelAttributes: ['ariaLabel'] },
+    ]),
+    [
+      { tag: 'img', attributes: ['sohimage'], labelAttributes: ['alt'] },
+      { tag: 'app-photo', attributes: ['url'], labelAttributes: ['arialabel'] },
+    ],
+  )
+})
+
+test('rejects invalid Angular image source configuration', () => {
+  assert.throws(
+    () => resolveAngularImageSources({ picaroo: { angular: { imageSources: 'sohImage' } } }),
+    /must be an array/,
+  )
+  assert.throws(
+    () =>
+      resolveAngularImageSources({
+        picaroo: { angular: { imageSources: [{ tag: 'AppPhoto', attributes: ['src'] }] } },
+      }),
+    /Invalid Angular image source tag/,
+  )
+  assert.throws(
+    () =>
+      resolveAngularImageSources({
+        picaroo: { angular: { imageSources: [{ tag: 'img', attributes: [] }] } },
+      }),
+    /attributes must be a non-empty array/,
+  )
+  assert.throws(
+    () =>
+      resolveAngularImageSources({
+        picaroo: { angular: { imageSources: [{ tag: 'img', attributes: ['[source]'] }] } },
+      }),
+    /Invalid Angular image source attribute/,
+  )
 })
