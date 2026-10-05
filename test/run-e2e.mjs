@@ -1,7 +1,7 @@
 import { createServer as createHttpServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { access, cp, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, cp, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,7 @@ const framework = process.argv[2] ?? 'html'
 const suites = {
   html: { appPort: 4401, editorPort: 4501, previewPort: 4601 },
   react: { appPort: 4402, editorPort: 4502, previewPort: 4602 },
+  angular: { appPort: 4403, editorPort: 4503, previewPort: 4603 },
 }
 const suite = suites[framework]
 if (!suite) throw new Error(`Unknown E2E framework "${framework}". Choose: ${Object.keys(suites).join(', ')}.`)
@@ -65,6 +66,25 @@ async function startApplication() {
     const server = staticServer()
     await listen(server, appPort)
     return { close: () => closeHttpServer(server) }
+  }
+  if (framework === 'angular') {
+    await symlink(path.join(root, 'node_modules'), path.join(fixture, 'node_modules'), 'junction')
+    const child = spawn(
+      process.execPath,
+      [
+        path.join(root, 'node_modules', '@angular', 'cli', 'bin', 'ng.js'),
+        'serve',
+        '--host',
+        'localhost',
+        '--port',
+        String(appPort),
+        '--configuration',
+        'development',
+      ],
+      { cwd: fixture, stdio: 'inherit' },
+    )
+    await waitFor(appUrl, 'Angular fixture', child)
+    return { close: () => stopChild(child) }
   }
   const child = spawn(
     process.execPath,
