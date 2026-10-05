@@ -185,8 +185,11 @@ The submodule pins an exact Picaroo revision, so consuming applications do not c
 npm install
 npm test
 npm run typecheck
+npm run test:e2e
 ```
 
 Picaroo runs its TypeScript source through `tsx`; there is no separate build step.
+The E2E command runs the HTML, React, and Angular discovery suites, prints a combined
+stability report, and exits with a failure if any supported framework is unstable.
 
 See [RELEASE_NOTES.md](./RELEASE_NOTES.md) for version highlights and upgrade notes.

@@ -19,6 +19,7 @@
     "test:e2e:html": "node test/run-e2e.mjs html",
     "test:e2e:react": "node test/run-e2e.mjs react",
     "test:e2e:angular": "node test/run-e2e.mjs angular",
+    "test:e2e": "node test/run-all-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

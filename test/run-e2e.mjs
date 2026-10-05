@@ -24,6 +24,7 @@ const previewPort = Number(process.env[`${environment}_PREVIEW_PORT`] ?? suite.p
 const appUrl = `http://localhost:${appPort}`
 const editorUrl = `http://localhost:${editorPort}`
 const previewUrl = `http://localhost:${previewPort}`
+const resultFile = path.join(root, 'test', 'results', `${framework}.json`)
 const mime = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.html', 'text/html; charset=utf-8'],
@@ -151,6 +152,7 @@ async function closeHttpServer(server) {
 }
 
 async function main() {
+  await rm(resultFile, { force: true })
   const temporaryPrefix = `picaroo-e2e-${framework}-`
   fixture = await mkdtemp(path.join(tmpdir(), temporaryPrefix))
   await cp(fixtureSource, fixture, { recursive: true })
@@ -200,6 +202,7 @@ async function main() {
       configFile: path.join(root, 'test', 'cypress.config.mjs'),
       spec: path.join(root, 'test', framework, 'discovery.cy.js'),
       config: { baseUrl: editorUrl },
+      env: { resultFile },
     })
     console.log(`Cypress finished for ${framework} discovery.`)
     if ('status' in result && result.status === 'failed') {
