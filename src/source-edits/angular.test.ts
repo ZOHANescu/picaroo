@@ -147,3 +147,82 @@ test('resolves Angular @for arrays and PrimeNG carousel item templates', () => {
     ],
   )
 })
+
+test('finds static and bound custom image directive sources', () => {
+  const template = `
+    <img sohImage="/assets/static.webp" alt="Static directive image" />
+    <img [sohImage]="hero.src" [alt]="hero.alt" />
+  `
+  const component = `
+    export class HomeComponent {
+      readonly hero = { src: '/assets/hero.webp', alt: 'Bound directive image' }
+    }
+  `
+  const targets = analyzeAngular(template, 'src/app/home.component.html', 'src/assets/picaroo', {
+    file: 'src/app/home.component.ts',
+    source: component,
+  })
+
+  assert.deepEqual(
+    targets.map((target) => [target.label, target.current]),
+    [
+      ['Static directive image', '/assets/static.webp'],
+      ['Bound directive image', '/assets/hero.webp'],
+    ],
+  )
+  assert.match(
+    replaceAngularReference(template, targets[0], '/assets/picaroo/static.webp'),
+    /sohImage="\/assets\/picaroo\/static\.webp"/,
+  )
+  assert.match(
+    replaceAngularReference(component, targets[1], '/assets/picaroo/hero.webp'),
+    /src: '\/assets\/picaroo\/hero\.webp'/,
+  )
+})
+
+test('resolves image arrays passed to a reusable child component input', () => {
+  const parentTemplate = '<app-gallery [images]="galleryImages" />'
+  const parentComponent = `
+    export class HomeComponent {
+      readonly galleryImages = [
+        { src: '/assets/one.webp', alt: 'Gallery one' },
+        { src: '/assets/two.webp', alt: 'Gallery two' },
+        { src: '/assets/three.webp', alt: 'Gallery three' }
+      ] as const
+    }
+  `
+  const childComponent = `
+    export class GalleryComponent {
+      readonly images = input.required<readonly GalleryImage[]>()
+      readonly visibleImages = computed(() =>
+        this.images().map((image, originalIndex) => ({ image, originalIndex }))
+      )
+    }
+  `
+  const galleryTemplate = `
+    @for (item of visibleImages(); track item.originalIndex) {
+      <img [sohImage]="item.image.src" [alt]="item.image.alt" />
+    }
+  `
+  const targets = analyzeAngular(
+    parentTemplate,
+    'src/app/home.component.html',
+    'src/assets/picaroo',
+    { file: 'src/app/home.component.ts', source: parentComponent },
+    [{
+      selector: 'app-gallery',
+      file: 'src/app/gallery.component.html',
+      source: galleryTemplate,
+      component: { file: 'src/app/gallery.component.ts', source: childComponent },
+    }],
+  )
+
+  assert.deepEqual(
+    targets.map((target) => [target.file, target.label, target.current]),
+    [
+      ['src/app/home.component.ts', 'Gallery one', '/assets/one.webp'],
+      ['src/app/home.component.ts', 'Gallery two', '/assets/two.webp'],
+      ['src/app/home.component.ts', 'Gallery three', '/assets/three.webp'],
+    ],
+  )
+})

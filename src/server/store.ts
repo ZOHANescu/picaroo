@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { replaceJsonField } from '../source-edits/json'
 import { hash } from '../hash'
 import { analyzeAngular, replaceAngularReference } from '../source-edits/angular'
-import type { AngularComponentSource } from '../source-edits/angular'
+import type { AngularChildComponent, AngularComponentSource } from '../source-edits/angular'
 import { analyzeHtml, replaceHtmlReference } from '../source-edits/html'
 import type { ProjectFramework } from '../integrations/project'
 
@@ -121,14 +121,25 @@ export class ProjectStore {
     await this.index.refresh()
     this.targets.clear()
     const angularComponents = new Map<string, AngularComponentSource>()
+    const angularChildComponents: AngularChildComponent[] = []
     if (this.integration === 'angular') {
       for (const [file, source] of this.index.sources) {
         if (!file.endsWith('.ts')) continue
+        const selector = source.match(/\bselector\s*:\s*(["'])([a-z][\w-]*)\1/i)?.[2]
         for (const match of source.matchAll(/\btemplateUrl\s*:\s*(["'])([^"']+)\1/g)) {
           const template = path.posix.normalize(
             path.posix.join(path.posix.dirname(file), match[2]),
           )
-          angularComponents.set(template, { file, source })
+          const component = { file, source }
+          angularComponents.set(template, component)
+          const templateSource = this.index.sources.get(template)
+          if (selector && templateSource !== undefined)
+            angularChildComponents.push({
+              selector,
+              file: template,
+              source: templateSource,
+              component,
+            })
         }
       }
     }
@@ -144,6 +155,7 @@ export class ProjectStore {
             file,
             this.assetDirectory,
             file.endsWith('.html') ? angularComponents.get(file) : undefined,
+            angularChildComponents,
           ))
             this.targets.set(target.id, target)
         else if (this.integration === 'html' && file.endsWith('.html'))
