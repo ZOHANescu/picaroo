@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveAngularImageSources, resolveImageComponents } from './components'
+import {
+  parseAngularImageSource,
+  resolveAngularImageSources,
+  resolveImageComponents,
+} from './components'
 
 test('shares configured components with optional CLI or plugin additions', () => {
   const manifest = {
@@ -89,4 +93,24 @@ test('rejects invalid Angular image source configuration', () => {
       }),
     /Invalid Angular image source attribute/,
   )
+})
+
+test('parses repeatable Angular image source CLI declarations', () => {
+  assert.deepEqual(parseAngularImageSource('img:sohImage'), {
+    tag: 'img',
+    attributes: ['sohimage'],
+    labelAttributes: ['alt'],
+  })
+  assert.deepEqual(parseAngularImageSource('app-photo:imageUrl:label'), {
+    tag: 'app-photo',
+    attributes: ['imageurl'],
+    labelAttributes: ['label'],
+  })
+})
+
+test('rejects malformed Angular image source CLI declarations', () => {
+  assert.throws(() => parseAngularImageSource('sohImage'), /Use tag:sourceAttribute/)
+  assert.throws(() => parseAngularImageSource('img::alt'), /Use tag:sourceAttribute/)
+  assert.throws(() => parseAngularImageSource('img:source:alt:extra'), /Use tag:sourceAttribute/)
+  assert.throws(() => parseAngularImageSource('AppPhoto:src'), /Invalid Angular image source tag/)
 })

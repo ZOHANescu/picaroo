@@ -85,3 +85,16 @@ export function resolveAngularImageSources(
   }
   return [...merged.values()]
 }
+
+/** Parse one repeatable CLI declaration: tag:sourceAttribute[:labelAttribute]. */
+export function parseAngularImageSource(value: string): AngularImageSource {
+  const parts = value.split(':')
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => part.length === 0))
+    throw new Error(
+      `Invalid --angular-image-source ${JSON.stringify(value)}. Use tag:sourceAttribute[:labelAttribute].`,
+    )
+  const [tag, attribute, label = 'alt'] = parts
+  return resolveAngularImageSources({}, [
+    { tag, attributes: [attribute], labelAttributes: [label] },
+  ])[0]
+}
