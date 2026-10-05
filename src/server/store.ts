@@ -432,7 +432,7 @@ export class ProjectStore {
 
   private assetUrl(current: string, file: string) {
     const asset = this.index.resolve(current, file)
-    if (asset) return this.publicUrl(asset.file)
+    if (asset) return this.publicUrl(asset.file) + (current.match(/[?#].*$/)?.[0] ?? '')
     if (/^(?:https?:|data:)/.test(current) || current.startsWith('/')) return current
     return '/' + path.posix.normalize(path.posix.join(path.posix.dirname(file), current))
   }

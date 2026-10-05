@@ -290,7 +290,7 @@ export function App() {
           </span>
           <div>
             <strong>{snapshot?.project ?? __PICAROO_PROJECT__.name}</strong>
-            <span>
+            <span data-testid="connection-status">
               <i className={connection === 'connected' ? 'live-dot' : 'live-dot pending'} />
               {snapshot?.framework ?? __PICAROO_PROJECT__.framework} · Local project
             </span>
@@ -307,7 +307,10 @@ export function App() {
           </button>
           <button className={panel === 'images' ? 'active' : ''} onClick={() => setPanel('images')}>
             <Icon name="grid" />
-            Page images<span className="count">{targets.length}</span>
+            Page images
+            <span className="count" data-testid="page-images-count">
+              {targets.length}
+            </span>
           </button>
           <button
             className={panel === 'history' ? 'active' : ''}
@@ -321,7 +324,9 @@ export function App() {
           <>
             <div className="list-heading">
               <h2>On this page</h2>
-              <span>{targets.filter((item) => item.editable).length} editable</span>
+              <span data-testid="page-images-editable-count">
+                {targets.filter((item) => item.editable).length} editable
+              </span>
             </div>
             <div className="search">
               <Icon name="image" size={16} />
@@ -337,6 +342,8 @@ export function App() {
                 <button
                   key={target.id}
                   className={`target-card ${selectedId === target.id ? 'selected' : ''}`}
+                  data-testid="page-image-card"
+                  data-picaroo-target-id={target.id}
                   onClick={() => choose(target)}
                 >
                   <span className={`asset-symbol ${target.kind}`}>

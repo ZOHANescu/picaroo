@@ -5,3 +5,5 @@ dist/
 .vite/
 *.log
 .idea/
+test/**/.picaroo/
+test/results/

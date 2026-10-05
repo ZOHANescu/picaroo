@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Picaroo HTML discovery fixture</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Picaroo HTML discovery fixture</h1>
+      <section class="image-grid" aria-label="Image discovery examples">
+        <img src="/assets/root.svg" alt="Root absolute image" width="96" height="72" />
+        <img src="assets/relative.svg" alt="Relative image" width="96" height="72" />
+        <img src="./assets/dot-relative.svg" alt="Dot-relative image" width="96" height="72" />
+        <img src="/assets/query.svg?version=1#fixture" alt="Image with query and hash" width="96" height="72" />
+        <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA3MiI+PHJlY3Qgd2lkdGg9Ijk2IiBoZWlnaHQ9IjcyIiBmaWxsPSIjNDBjYjk2Ii8+PC9zdmc+" alt="Embedded Base64 image" width="96" height="72" />
+        <img
+          class="multiline-image"
+          src="/assets/multiline.svg"
+          alt="Multiline image"
+          width="96"
+          height="72"
+        />
+        <img
+          src="/assets/responsive-fallback.svg"
+          srcset="/assets/responsive-small.svg 1x, /assets/responsive-large.svg 2x"
+          alt="Responsive image fallback"
+          width="96"
+          height="72"
+        />
+        <picture>
+          <source media="(min-width: 800px)" srcset="/assets/picture-wide.svg" />
+          <img src="/assets/picture-fallback.svg" alt="Picture fallback" width="96" height="72" />
+        </picture>
+        <img src='/assets/single-quote.svg' alt='Single quoted image' width='96' height='72' />
+        <div id="delayed-image"></div>
+        <template id="delayed-template">
+          <img src="/assets/delayed.svg" alt="Delayed image" width="96" height="72" />
+        </template>
+        <div class="fixture-background" role="img" aria-label="CSS background image"></div>
+        <div class="fixture-media-background" role="img" aria-label="Media CSS background image"></div>
+      </section>
+    </main>
+    <script>
+      window.setTimeout(() => {
+        const template = document.querySelector('#delayed-template')
+        document.querySelector('#delayed-image').append(template.content.cloneNode(true))
+      }, 250)
+    </script>
+  </body>
+</html>

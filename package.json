@@ -16,15 +16,16 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "test": "node --import tsx/esm --test src/assets/optimize.test.ts src/source-edits/angular.test.ts src/source-edits/html.test.ts src/source-edits/react.test.ts src/integrations/project.test.ts src/integrations/components.test.ts",
+    "test:e2e:html": "node test/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "postcss": "^8.5.28",
-    "@fontsource-variable/dm-sans": "^5.2.0",
     "@babel/parser": "^7.28.0",
     "@babel/types": "^7.28.0",
+    "@fontsource-variable/dm-sans": "^5.2.0",
     "@vitejs/plugin-react": "^5.0.0",
     "magic-string": "^0.30.17",
+    "postcss": "^8.5.28",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "sharp": "^0.35.4",
@@ -36,6 +37,7 @@
     "@types/node": "^22.18.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "cypress": "^16.1.1",
     "typescript": "~5.9.2"
   }
 }
