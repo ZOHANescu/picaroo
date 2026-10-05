@@ -4,6 +4,7 @@ import { VISITOR_KEYS } from '@babel/types'
 import type { Node } from '@babel/types'
 import MagicString from 'magic-string'
 import { hash } from '../hash'
+import type { AngularImageSource } from '../integrations/components'
 import type { SourceTarget } from './react'
 
 const imageUrl = /\.(?:svg|png|jpe?g|webp|avif)(?:[?#].*)?$/i
@@ -28,6 +29,13 @@ export interface AngularComponentSource {
   source: string
 }
 
+export interface AngularChildComponent {
+  selector: string
+  file: string
+  source: string
+  component?: AngularComponentSource
+}
+
 interface TemplateContext {
   alias: string
   collection: string[]
@@ -43,18 +51,51 @@ interface LiteralValue {
   line: number
 }
 
-const imageComponents = new Map<string, { sources: string[]; labels: string[] }>([
+type ImageComponentRegistry = Map<string, { sources: string[]; labels: string[] }>
+
+const builtInImageComponents: [string, { sources: string[]; labels: string[] }][] = [
   ['img', { sources: ['src', 'ngsrc'], labels: ['alt'] }],
   ['p-image', { sources: ['src'], labels: ['alt'] }],
   ['p-avatar', { sources: ['image'], labels: ['arialabel', 'label'] }],
   ['p-chip', { sources: ['image'], labels: ['alt', 'label'] }],
-])
+]
 
 export function analyzeAngular(
   source: string,
   file: string,
   assetDirectory = 'public/picaroo',
   component?: AngularComponentSource,
+  childComponents: AngularChildComponent[] = [],
+  customImageSources: AngularImageSource[] = [],
+): SourceTarget[] {
+  const imageComponents = imageComponentRegistry(customImageSources)
+  const targets = analyzeAngularTemplate(
+    source,
+    file,
+    assetDirectory,
+    component,
+    childComponents,
+    imageComponents,
+  )
+  const unique = new Map<string, SourceTarget>()
+  for (const target of targets) unique.set(`${target.file}:${target.start}:${target.end}`, target)
+  return [...unique.values()]
+}
+
+interface AngularAnalysisOptions {
+  inputBindings?: Map<string, string[]>
+  bindingsOnly?: boolean
+  idSalt?: string
+}
+
+function analyzeAngularTemplate(
+  source: string,
+  file: string,
+  assetDirectory: string,
+  component: AngularComponentSource | undefined,
+  childComponents: AngularChildComponent[],
+  imageComponents: ImageComponentRegistry,
+  options: AngularAnalysisOptions = {},
 ): SourceTarget[] {
   const regions = file.endsWith('.html') ? [{ source, offset: 0 }] : inlineTemplates(source)
   const targets: SourceTarget[] = []
@@ -82,9 +123,9 @@ export function analyzeAngular(
           .find((attribute) => component.labels.includes(attribute.name.toLowerCase()))
           ?.value.trim() ||
         `${element === 'img' ? 'Image' : `PrimeNG ${element.slice(2)}`} · ${path.basename(file)}:${lineAt(source, tagOffset)}`
-      if (current && supportedImage(current) && !current.includes('{{')) {
+      if (!options.bindingsOnly && current && supportedImage(current) && !current.includes('{{')) {
         targets.push({
-          id: hash(`${file}:angular-image:${ordinal++}`).slice(0, 20),
+          id: hash(`${file}:${options.idSalt ?? ''}:angular-image:${ordinal++}`).slice(0, 20),
           file,
           line: lineAt(source, tagOffset),
           label,
@@ -107,12 +148,18 @@ export function analyzeAngular(
       if (!binding || !componentSource || !fields) continue
       const expression = memberExpression(sourceAttr.value)
       if (!expression) continue
+      if (
+        options.bindingsOnly &&
+        !usesInputBinding(expression, tag.index!, contexts, options.inputBindings)
+      )
+        continue
       const resolved = resolveTemplateExpression(
         expression,
         tag.index!,
         contexts,
         fields,
         componentSource.source,
+        options.inputBindings,
       )
       for (const [index, item] of resolved.entries()) {
         if (!supportedImage(item.literal.current)) continue
@@ -120,7 +167,7 @@ export function analyzeAngular(
         if (sourceLiterals.has(literalKey)) continue
         sourceLiterals.add(literalKey)
         targets.push({
-          id: hash(`${file}:angular-object:${ordinal++}:${index}`).slice(0, 20),
+          id: hash(`${file}:${options.idSalt ?? ''}:angular-object:${ordinal++}:${index}`).slice(0, 20),
           file: componentSource.file,
           line: item.literal.line,
           label:
@@ -142,8 +189,92 @@ export function analyzeAngular(
         })
       }
     }
+
+    if (!options.bindingsOnly && componentSource && fields && childComponents.length) {
+      const children = new Map(
+        childComponents.map((child) => [child.selector.toLowerCase(), child]),
+      )
+      for (const tag of region.source.matchAll(/<([a-z][\w-]*)\b[\s\S]*?>/gi)) {
+        const child = children.get(tag[1].toLowerCase())
+        if (!child) continue
+        const inputBindings = new Map<string, string[]>()
+        for (const attribute of parseAttributes(tag[0], region.offset + tag.index!)) {
+          const input = attribute.name.match(/^\[([A-Za-z_$][\w$]*)\]$/)?.[1]
+          const expression = input ? memberExpression(attribute.value) : undefined
+          if (input && expression) inputBindings.set(input, expression)
+        }
+        if (!inputBindings.size) continue
+        targets.push(
+          ...analyzeAngularTemplate(
+            child.source,
+            child.file,
+            assetDirectory,
+            componentSource,
+            [],
+            imageComponents,
+            {
+              inputBindings,
+              bindingsOnly: true,
+              idSalt: `${file}:${region.offset + tag.index!}`,
+            },
+          ),
+        )
+        for (const [input, expression] of inputBindings) {
+          if (!rendersBoundImages(child, input, imageComponents)) continue
+          const root = resolveNode(fields.get(expression[0]), expression.slice(1))
+          for (const [index, item] of imageLiterals(root, componentSource.source).entries()) {
+            if (!supportedImage(item.literal.current)) continue
+            targets.push({
+              id: hash(
+                `${child.file}:${file}:${region.offset + tag.index!}:angular-input:${input}:${ordinal++}:${index}`,
+              ).slice(0, 20),
+              file: componentSource.file,
+              line: item.literal.line,
+              label: item.label ?? `Image · ${path.basename(child.file)}:${lineAt(child.source, 0)}`,
+              kind: imageKind(item.literal.current),
+              current: item.literal.current,
+              version: hash(componentSource.source),
+              editable: true,
+              shared: false,
+              start: item.literal.start,
+              end: item.literal.end,
+              insertion: -1,
+              hasSource: true,
+              canMap: false,
+              runtimeMatch: true,
+              assetDirectory,
+              angular: { binding: false, quote: item.literal.quote, sourceLiteral: true },
+            })
+          }
+        }
+      }
+    }
   }
   return targets
+}
+
+function imageComponentRegistry(customImageSources: AngularImageSource[]) {
+  const registry: ImageComponentRegistry = new Map(
+    builtInImageComponents.map(([tag, value]) => [
+      tag,
+      { sources: [...value.sources], labels: [...value.labels] },
+    ]),
+  )
+  for (const source of customImageSources) {
+    const tag = source.tag.toLowerCase()
+    const current = registry.get(tag) ?? { sources: [], labels: [] }
+    current.sources = [
+      ...new Set([...current.sources, ...source.attributes.map((attribute) => attribute.toLowerCase())]),
+    ]
+    current.labels = [
+      ...new Set([
+        ...current.labels,
+        ...source.labelAttributes.map((attribute) => attribute.toLowerCase()),
+      ]),
+    ]
+    registry.set(tag, current)
+  }
+  return registry
 }
 
 function componentFields(source: string) {
@@ -193,8 +324,15 @@ function propertyName(node: Node) {
 
 function memberExpression(value: string) {
   const expression = value.trim()
-  if (!/^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*$/.test(expression)) return
-  return expression.split('.').map((part) => part.trim())
+  if (
+    !/^[A-Za-z_$][\w$]*(?:\s*\(\s*\))?(?:\s*\.\s*[A-Za-z_$][\w$]*(?:\s*\(\s*\))?)*$/.test(
+      expression,
+    )
+  )
+    return
+  return expression
+    .split('.')
+    .map((part) => part.trim().replace(/\s*\(\s*\)$/, ''))
 }
 
 function resolveNode(node: Node | undefined, parts: string[]): Node | undefined {
@@ -243,18 +381,65 @@ function labelFor(node: Node, parts: string[], source: string) {
   return label || undefined
 }
 
+function imageLiterals(node: Node | undefined, source: string): { literal: LiteralValue; label?: string }[] {
+  if (!node) return []
+  const value = unwrap(node)
+  if (value.type === 'ArrayExpression')
+    return value.elements.flatMap((element) =>
+      element && element.type !== 'SpreadElement' ? imageLiterals(element, source) : [],
+    )
+  if (value.type !== 'ObjectExpression') return []
+
+  const sourceNode = resolveNode(value, ['src'])
+  const literal = literalValue(sourceNode, source)
+  const own = literal ? [{ literal, label: labelFor(value, ['src'], source) }] : []
+  const nested = value.properties.flatMap((property) => {
+    if (property.type !== 'ObjectProperty' || propertyName(property.key) === 'src') return []
+    return imageLiterals(property.value, source)
+  })
+  return [...own, ...nested]
+}
+
+function rendersBoundImages(
+  child: AngularChildComponent,
+  input: string,
+  imageComponents: ImageComponentRegistry,
+) {
+  const escaped = input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const direct = new RegExp(`\\b${escaped}\\s*\\(\\s*\\)`).test(child.source)
+  const derived = child.component
+    ? new RegExp(`\\bthis\\s*\\.\\s*${escaped}\\s*\\(\\s*\\)`).test(child.component.source)
+    : false
+  if (!direct && !derived) return false
+
+  for (const tag of child.source.matchAll(/<([a-z][\w-]*)\b[\s\S]*?>/gi)) {
+    const imageComponent = imageComponents.get(tag[1].toLowerCase())
+    if (!imageComponent) continue
+    const names = imageComponent.sources.flatMap((name) => [name, `[${name}]`, `[attr.${name}]`])
+    if (
+      parseAttributes(tag[0], tag.index!).some((attribute) =>
+        names.includes(attribute.name.toLowerCase()),
+      )
+    )
+      return true
+  }
+  return false
+}
+
 function resolveTemplateExpression(
   expression: string[],
   offset: number,
   contexts: TemplateContext[],
   fields: Map<string, Node>,
   source: string,
+  inputBindings?: Map<string, string[]>,
 ) {
   const context = contexts
     .filter((item) => item.alias === expression[0] && item.start <= offset && offset < item.end)
     .sort((a, b) => b.start - a.start)[0]
   if (context) {
-    const root = resolveNode(fields.get(context.collection[0]), context.collection.slice(1))
+    const collection = resolveInputBinding(context.collection, inputBindings)
+    const root = resolveNode(fields.get(collection[0]), collection.slice(1))
     if (root?.type !== 'ArrayExpression') return []
     return root.elements.flatMap((element) => {
       if (!element || element.type === 'SpreadElement') return []
@@ -262,17 +447,40 @@ function resolveTemplateExpression(
       return literal ? [{ literal, label: labelFor(element, expression.slice(1), source) }] : []
     })
   }
-  const root = fields.get(expression[0])
-  const literal = literalValue(resolveNode(root, expression.slice(1)), source)
+  const resolvedExpression = resolveInputBinding(expression, inputBindings)
+  const root = fields.get(resolvedExpression[0])
+  const literal = literalValue(resolveNode(root, resolvedExpression.slice(1)), source)
   return literal
-    ? [{ literal, label: root ? labelFor(root, expression.slice(1), source) : undefined }]
+    ? [{ literal, label: root ? labelFor(root, resolvedExpression.slice(1), source) : undefined }]
     : []
+}
+
+function resolveInputBinding(expression: string[], inputBindings?: Map<string, string[]>) {
+  const binding = inputBindings?.get(expression[0])
+  return binding ? [...binding, ...expression.slice(1)] : expression
+}
+
+function usesInputBinding(
+  expression: string[],
+  offset: number,
+  contexts: TemplateContext[],
+  inputBindings?: Map<string, string[]>,
+) {
+  if (!inputBindings?.size) return false
+  if (inputBindings.has(expression[0])) return true
+  return contexts.some(
+    (context) =>
+      context.alias === expression[0] &&
+      context.start <= offset &&
+      offset < context.end &&
+      inputBindings.has(context.collection[0]),
+  )
 }
 
 function templateContexts(source: string) {
   const contexts: TemplateContext[] = []
   for (const match of source.matchAll(
-    /@for\s*\(\s*([A-Za-z_$][\w$]*)\s+of\s+([^;)]+)[^)]*\)\s*\{/g,
+    /@for\s*\(\s*([A-Za-z_$][\w$]*)\s+of\s+([^;]+?)\s*(?:;[^)]*)?\)\s*\{/g,
   )) {
     const collection = memberExpression(match[2])
     const start = match.index! + match[0].length

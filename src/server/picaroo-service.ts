@@ -8,6 +8,7 @@ import { MAX_UPLOAD, MAX_UPLOAD_MB } from '../shared'
 import { optimizeAsset } from '../assets/optimize'
 import { ProjectStore } from './store'
 import type { ProjectFramework } from '../integrations/project'
+import type { AngularImageSource } from '../integrations/components'
 
 const prefix = '/__picaroo'
 
@@ -19,6 +20,7 @@ export interface PicarooServiceOptions {
   components?: string[]
   aliases?: { find: string; replacement: string }[]
   assetDirectory?: string
+  angularImageSources?: AngularImageSource[]
 }
 
 export class PicarooService {
@@ -40,6 +42,7 @@ export class PicarooService {
       options.framework,
       options.assetDirectory,
       options.integration,
+      options.angularImageSources,
     )
   }
 

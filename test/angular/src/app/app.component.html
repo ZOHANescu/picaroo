@@ -1,0 +1,32 @@
+<main>
+  <h1>Picaroo Angular discovery fixture</h1>
+  <section class="image-grid" aria-label="Angular image discovery examples">
+    <img src="/assets/static.svg" alt="Angular static image" />
+    <img [src]="'/assets/bound-literal.svg'" alt="Angular bound literal image" />
+    <img [ngSrc]="'/assets/ngsrc.svg'" alt="Angular ngSrc image" width="96" height="72" />
+    <img
+      src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA3MiI+PHJlY3Qgd2lkdGg9Ijk2IiBoZWlnaHQ9IjcyIiBmaWxsPSIjNDBjYjk2Ii8+PC9zdmc+"
+      alt="Angular embedded Base64 image"
+    />
+    <img [src]="images.hero.src" [alt]="images.hero.alt" />
+    <img [src]="images.secondary.src" [alt]="images.secondary.alt" />
+    @for (image of loopImages; track image.src) {
+      <img [src]="image.src" [alt]="image.alt" />
+    }
+    <app-inline-image />
+    <p-image src="/assets/prime-image.svg" alt="PrimeNG image"></p-image>
+    <p-avatar image="/assets/prime-avatar.svg" ariaLabel="PrimeNG avatar"></p-avatar>
+    <p-chip image="/assets/prime-chip.svg" label="PrimeNG chip"></p-chip>
+    <div class="angular-css-background" role="img" aria-label="Angular CSS background"></div>
+    @if (showDelayed()) {
+      <img [src]="delayedImage.src" [alt]="delayedImage.alt" />
+    }
+    <img sohImage="/assets/directive-static.svg" alt="Angular custom directive static image" />
+    <img [sohImage]="directiveImage.src" [alt]="directiveImage.alt" />
+    <app-photo
+      [imageUrl]="'/assets/custom-element.svg'"
+      label="Angular configured custom element"
+    />
+    <app-gallery [images]="galleryImages" />
+  </section>
+</main>

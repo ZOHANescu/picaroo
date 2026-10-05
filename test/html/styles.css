@@ -1,0 +1,38 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #17352d;
+  background: #f4faf7;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  padding: 24px;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 120px);
+  gap: 16px;
+}
+
+.image-grid img,
+.fixture-background,
+.fixture-media-background {
+  display: block;
+  width: 96px;
+  height: 72px;
+}
+
+.fixture-background {
+  background-image: url("/assets/background.svg");
+  background-size: cover;
+}
+
+@media (min-width: 300px) {
+  .fixture-media-background {
+    background: center / cover no-repeat url('/assets/media-background.svg');
+  }
+}

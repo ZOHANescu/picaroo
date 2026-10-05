@@ -93,6 +93,7 @@ function proxyRequest(target: URL, req: IncomingMessage, res: ServerResponse) {
         const headers = responseHeaders
         delete headers['content-length']
         delete headers['content-encoding']
+        delete headers['transfer-encoding']
         delete headers['content-security-policy']
         delete headers['content-security-policy-report-only']
         delete headers['x-frame-options']

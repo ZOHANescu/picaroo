@@ -1,6 +1,6 @@
 {
   "name": "picaroo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "A local, source-aware image editor for development.",
@@ -15,16 +15,20 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "test": "node --import tsx/esm --test src/assets/optimize.test.ts src/source-edits/angular.test.ts src/source-edits/html.test.ts src/source-edits/react.test.ts src/integrations/project.test.ts src/integrations/components.test.ts",
+    "test": "node --import tsx/esm --test src/assets/optimize.test.ts src/source-edits/angular.test.ts src/source-edits/html.test.ts src/source-edits/react.test.ts src/integrations/project.test.ts src/integrations/components.test.ts test/e2e-harness.test.mjs",
+    "test:e2e:html": "node test/run-e2e.mjs html",
+    "test:e2e:react": "node test/run-e2e.mjs react",
+    "test:e2e:angular": "node test/run-e2e.mjs angular",
+    "test:e2e": "node test/run-all-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "postcss": "^8.5.28",
-    "@fontsource-variable/dm-sans": "^5.2.0",
     "@babel/parser": "^7.28.0",
     "@babel/types": "^7.28.0",
+    "@fontsource-variable/dm-sans": "^5.2.0",
     "@vitejs/plugin-react": "^5.0.0",
     "magic-string": "^0.30.17",
+    "postcss": "^8.5.28",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "sharp": "^0.35.4",
@@ -33,9 +37,20 @@
     "vite": "^7.1.0"
   },
   "devDependencies": {
+    "@angular/build": "^20.2.2",
+    "@angular/cli": "^20.2.2",
+    "@angular/common": "^20.2.4",
+    "@angular/compiler": "^20.2.4",
+    "@angular/compiler-cli": "^20.2.4",
+    "@angular/core": "^20.2.4",
+    "@angular/platform-browser": "^20.2.4",
     "@types/node": "^22.18.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "typescript": "~5.9.2"
+    "cypress": "^16.1.1",
+    "rxjs": "^7.8.2",
+    "tslib": "^2.8.1",
+    "typescript": "~5.9.2",
+    "zone.js": "^0.15.1"
   }
 }
